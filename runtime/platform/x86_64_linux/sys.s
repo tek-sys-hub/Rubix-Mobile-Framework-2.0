@@ -6,21 +6,21 @@
 g_argc: .quad 0
 g_argv: .quad 0
 
-# Heap memory bump allocator state (64MB pool)
+# Heap memory bump allocator state (64MB initial pool)
 .align 16
 heap_base: .quad 0
 heap_curr: .quad 0
 heap_end:  .quad 0
+heap_initial_end: .quad 0
 
-# AST Arena state (1,000,000 nodes)
+# AST Arena state (512MB virtual address space, up to 8,388,608 nodes)
 # Node structure: kind(8), line(8), col(8), child(8), sibling(8), type_id(8), text_ptr(8), pad(8) = 64 bytes per node
 .globl g_node_count
 g_node_count: .quad 0
 node_arena_ptr: .quad 0
+node_arena_capacity: .quad 8388608
 
-# Static buffers
-out_buf: .space 64
-str_char_buf: .space 2
+# Static constants
 empty_str: .string ""
 newline_str: .string "\n"
 str_true: .string "true"
@@ -131,10 +131,11 @@ rubix_rt_init_heap:
     movq %rax, heap_curr(%rip)
     addq $67108864, %rax
     movq %rax, heap_end(%rip)
+    movq %rax, heap_initial_end(%rip)
 
-    # Allocate Node Arena (64MB)
+    # Allocate Node Arena (512MB virtual address space, demand-paged)
     movq $0, %rdi
-    movq $67108864, %rsi
+    movq $536870912, %rsi
     movq $3, %rdx
     movq $34, %r10
     movq $-1, %r8
@@ -156,7 +157,7 @@ rubix_rt_init_heap:
 .type alloc, @function
 rubix_rt_alloc:
 alloc:
-    # Fast 3-instruction bump allocator
+    # Fast 16-byte alignment
     addq $15, %rdi
     andq $-16, %rdi
     cmpq $16, %rdi
@@ -168,7 +169,7 @@ alloc:
     je .L_alloc_init
     leaq (%rax, %rdi), %rdx
     cmpq heap_end(%rip), %rdx
-    jae .L_oom
+    jae .L_alloc_grow
     movq %rdx, heap_curr(%rip)
     ret
 .L_alloc_init:
@@ -183,18 +184,67 @@ alloc:
     movq %rbp, %rsp
     popq %rbp
     ret
+.L_alloc_grow:
+    # Seamless dynamic arena growth: mmap a new 64MB chunk from kernel
+    pushq %rbp
+    movq %rsp, %rbp
+    pushq %rdi                  # Save requested size
+    
+    movq $67108864, %rsi        # 64 MB minimum chunk
+    cmpq %rsi, %rdi
+    jbe .L_grow_mmap
+    leaq 67108864(%rdi), %rsi   # Larger chunk if requested > 64MB
+    addq $4095, %rsi
+    andq $-4096, %rsi           # Page align
+.L_grow_mmap:
+    pushq %rsi                  # Save chunk size
+    # sys_mmap(0, rsi, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)
+    movq $0, %rdi
+    movq $3, %rdx
+    movq $34, %r10
+    movq $-1, %r8
+    movq $0, %r9
+    movq $9, %rax
+    syscall
+    popq %rsi                   # Restore chunk size
+    popq %rdi                   # Restore requested size
+    
+    cmpq $0, %rax
+    jl .L_oom                   # Out of memory only if kernel denies mmap
+    
+    # Update heap bounds to new chunk
+    leaq (%rax, %rsi), %rcx
+    movq %rcx, heap_end(%rip)
+    leaq (%rax, %rdi), %rcx
+    movq %rcx, heap_curr(%rip)
+    # %rax is start address of allocated block
+    movq %rbp, %rsp
+    popq %rbp
+    ret
 .L_oom:
     leaq panic_prefix(%rip), %rdi
     call rubix_rt_panic
     movq $0, %rax
+    movq %rbp, %rsp
+    popq %rbp
     ret
 
 .section .text.rubix_rt_free, "ax", @progbits
 .globl rubix_rt_free
 .section .text.free, "ax", @progbits
 .globl free
+.globl rubix_rt_arena_reset
+.globl arena_reset
 rubix_rt_free:
 free:
+    ret
+
+rubix_rt_arena_reset:
+arena_reset:
+    movq heap_base(%rip), %rax
+    movq %rax, heap_curr(%rip)
+    movq heap_initial_end(%rip), %rax
+    movq %rax, heap_end(%rip)
     ret
 
 
@@ -228,6 +278,8 @@ get_arg_count:
 rubix_rt_get_arg:
 get_arg:
     # arg0: idx
+    cmpq $0, %rdi
+    jl .L_arg_oob
     addq $1, %rdi           # skip argv[0]
     movq g_argc(%rip), %rax
     cmpq %rax, %rdi
@@ -302,6 +354,16 @@ rubix_rt_str_concat:
     movq %rdi, %r12     # src a
     movq %rsi, %r13     # src b
     
+    # Null pointer safety
+    cmpq $0, %r12
+    jne .L_sc_a_ok
+    leaq empty_str(%rip), %r12
+.L_sc_a_ok:
+    cmpq $0, %r13
+    jne .L_sc_b_ok
+    leaq empty_str(%rip), %r13
+.L_sc_b_ok:
+
     movq %r12, %rdi
     call rubix_rt_str_len
     movq %rax, %r14     # len a
@@ -310,23 +372,34 @@ rubix_rt_str_concat:
     call rubix_rt_str_len
     movq %rax, %r15     # len b
     
+    # Fast path optimizations: return other operand directly if one is empty
+    cmpq $0, %r14
+    jne .L_sc_check_b
+    movq %r13, %rax
+    jmp .L_sc_done
+.L_sc_check_b:
+    cmpq $0, %r15
+    jne .L_sc_do_alloc
+    movq %r12, %rax
+    jmp .L_sc_done
+
+.L_sc_do_alloc:
     leaq 1(%r14, %r15), %rdi
     call rubix_rt_alloc
-    
-    pushq %rax          # save dest ptr
     
     # Fast microcode copy a
     movq %rax, %rdi
     movq %r12, %rsi
     movq %r14, %rcx
+    pushq %rax          # save return ptr
     rep movsb
     
     # Fast microcode copy b (including null terminator)
     movq %r13, %rsi
     leaq 1(%r15), %rcx
     rep movsb
-    
     popq %rax
+.L_sc_done:
     popq %r15
     popq %r14
     popq %r13
@@ -344,11 +417,36 @@ char_at:
     # rdi: str, rsi: idx
     cmpq $0, %rdi
     je .L_char_empty
-    movb (%rdi, %rsi), %al
-    movb %al, str_char_buf(%rip)
-    movb $0, str_char_buf+1(%rip)
-    leaq str_char_buf(%rip), %rax
+    cmpq $0, %rsi
+    jl .L_char_empty
+    pushq %rbp
+    movq %rsp, %rbp
+    pushq %r12
+    pushq %r13
+    movq %rdi, %r12
+    movq %rsi, %r13
+    
+    call rubix_rt_str_len
+    cmpq %rax, %r13
+    jge .L_char_oob
+    
+    movzbl (%r12, %r13), %r10d
+    pushq %r10
+    movq $2, %rdi
+    call rubix_rt_alloc
+    popq %r10
+    movb %r10b, (%rax)
+    movb $0, 1(%rax)
+    popq %r13
+    popq %r12
+    movq %rbp, %rsp
+    popq %rbp
     ret
+.L_char_oob:
+    popq %r13
+    popq %r12
+    movq %rbp, %rsp
+    popq %rbp
 .L_char_empty:
     leaq empty_str(%rip), %rax
     ret
@@ -359,10 +457,32 @@ char_at:
 .globl byte_at
 rubix_rt_str_byte_at:
 byte_at:
+    # rdi: str, rsi: idx
     cmpq $0, %rdi
     je .L_byte_zero
-    movzbq (%rdi, %rsi), %rax
+    cmpq $0, %rsi
+    jl .L_byte_zero
+    pushq %rbp
+    movq %rsp, %rbp
+    pushq %r12
+    pushq %r13
+    movq %rdi, %r12
+    movq %rsi, %r13
+    call rubix_rt_str_len
+    cmpq %rax, %r13
+    jge .L_byte_oob
+    
+    movzbq (%r12, %r13), %rax
+    popq %r13
+    popq %r12
+    movq %rbp, %rsp
+    popq %rbp
     ret
+.L_byte_oob:
+    popq %r13
+    popq %r12
+    movq %rbp, %rsp
+    popq %rbp
 .L_byte_zero:
     movq $0, %rax
     ret
@@ -379,31 +499,51 @@ substring:
     pushq %r12
     pushq %r13
     pushq %r14
+    pushq %r15
+    
+    cmpq $0, %rdi
+    je .L_sub_empty
     
     movq %rdi, %r12     # s
     movq %rsi, %r13     # start
-    movq %rdx, %r14
-    subq %rsi, %r14     # len = end - start
+    movq %rdx, %r14     # end
     
+    # Get string length
+    movq %r12, %rdi
+    call rubix_rt_str_len
+    movq %rax, %r15     # r15 = strlen(s)
+    
+    # Bounds safety checks:
+    # 1. start must be >= 0
+    cmpq $0, %r13
+    jl .L_sub_empty
+    # 2. start must be < strlen(s)
+    cmpq %r15, %r13
+    jge .L_sub_empty
+    # 3. end cannot exceed strlen(s)
+    cmpq %r15, %r14
+    jle .L_sub_end_ok
+    movq %r15, %r14     # clamp end = strlen(s)
+.L_sub_end_ok:
+    # 4. len = end - start
+    subq %r13, %r14
     cmpq $0, %r14
     jle .L_sub_empty
     
-    movq %r14, %rdi
-    addq $1, %rdi
+    # Allocate len + 1
+    leaq 1(%r14), %rdi
     call rubix_rt_alloc
     
-    movq $0, %rcx
-.L_sub_copy:
-    cmpq %r14, %rcx
-    jge .L_sub_finish
-    movq %r13, %rdx
-    addq %rcx, %rdx
-    movb (%r12, %rdx), %r8b
-    movb %r8b, (%rax, %rcx)
-    incq %rcx
-    jmp .L_sub_copy
-.L_sub_finish:
-    movb $0, (%rax, %rcx)
+    # Copy characters using hardware rep movsb
+    movq %rax, %rdi         # dest
+    leaq (%r12, %r13), %rsi # src = s + start
+    movq %r14, %rcx         # count = len
+    pushq %rax              # save return ptr
+    rep movsb
+    movb $0, (%rdi)         # null terminator
+    popq %rax
+    
+    popq %r15
     popq %r14
     popq %r13
     popq %r12
@@ -412,6 +552,7 @@ substring:
     ret
 .L_sub_empty:
     leaq empty_str(%rip), %rax
+    popq %r15
     popq %r14
     popq %r13
     popq %r12
@@ -431,15 +572,16 @@ text:
     pushq %rbp
     movq %rsp, %rbp
     pushq %rbx
+    subq $48, %rsp          # 48 bytes thread-local stack scratchpad
     
     movq %rdi, %rax
-    movq $0, %rbx       # negative flag
+    movq $0, %rbx           # negative flag
     cmpq $0, %rax
     jge .L_pos_int
     negq %rax
     movq $1, %rbx
 .L_pos_int:
-    leaq out_buf+32(%rip), %rdi
+    leaq -9(%rbp), %rdi     # write from end of stack scratchpad backwards (below saved rbx)
     movb $0, (%rdi)
     movq $10, %rcx
 .L_int_loop:
@@ -454,7 +596,7 @@ text:
     cmpq $1, %rbx
     jne .L_int_str_copy
     decq %rdi
-    movb $45, (%rdi)    # '-'
+    movb $45, (%rdi)        # '-'
 .L_int_str_copy:
     # duplicate string into heap
     pushq %rdi
@@ -480,6 +622,7 @@ text:
     jmp .L_int_dup
 .L_int_dup_end:
     movb $0, (%rax, %rdx)
+    addq $48, %rsp
     popq %rbx
     movq %rbp, %rsp
     popq %rbp
@@ -628,23 +771,49 @@ ends_with:
     ret
 
 
+.section .text.rubix_rt_is_string_ptr, "ax", @progbits
+.globl rubix_rt_is_string_ptr
+rubix_rt_is_string_ptr:
+    # 1. In .rodata binary section (string literals: 0x400000..0x10000000)
+    cmpq $0x400000, %rdi
+    jb .L_not_str
+    cmpq $0x10000000, %rdi
+    jbe .L_is_str
+    # 2. In 64-bit user address space (mmap heap and stack: 0x700000000000..0x7fffffffffff)
+    movabsq $0x700000000000, %rax
+    cmpq %rax, %rdi
+    jb .L_not_str
+    movabsq $0x7fffffffffff, %rax
+    cmpq %rax, %rdi
+    ja .L_not_str
+.L_is_str:
+    movq $1, %rax
+    ret
+.L_not_str:
+    movq $0, %rax
+    ret
+
 .section .text.rubix_rt_poly_len, "ax", @progbits
 .globl rubix_rt_poly_len
 .section .text.length, "ax", @progbits
 .globl length
 rubix_rt_poly_len:
 length:
-    cmpq $0, %rdi
-    je .L_plen_zero
-    cmpq $0x400000, %rdi
-    jae .L_plen_str
-    movq (%rdi), %rax
-    ret
-.L_plen_str:
+    pushq %rbp
+    movq %rsp, %rbp
+    pushq %rdi
+    call rubix_rt_is_string_ptr
+    popq %rdi
+    testq %rax, %rax
+    jz .L_plen_zero
     call rubix_rt_str_len
+    movq %rbp, %rsp
+    popq %rbp
     ret
 .L_plen_zero:
     movq $0, %rax
+    movq %rbp, %rsp
+    popq %rbp
     ret
 
 .section .text.rubix_rt_poly_eq, "ax", @progbits
@@ -652,11 +821,31 @@ length:
 rubix_rt_poly_eq:
     cmpq %rdi, %rsi
     je .L_peq_true
-    cmpq $0x400000, %rdi
-    jb .L_peq_false
-    cmpq $0x400000, %rsi
-    jb .L_peq_false
+    pushq %rbp
+    movq %rsp, %rbp
+    pushq %rdi
+    pushq %rsi
+    call rubix_rt_is_string_ptr
+    popq %rsi
+    popq %rdi
+    testq %rax, %rax
+    jz .L_peq_false_frame
+    pushq %rdi
+    pushq %rsi
+    movq %rsi, %rdi
+    call rubix_rt_is_string_ptr
+    popq %rsi
+    popq %rdi
+    testq %rax, %rax
+    jz .L_peq_false_frame
     call rubix_rt_str_eq
+    movq %rbp, %rsp
+    popq %rbp
+    ret
+.L_peq_false_frame:
+    movq $0, %rax
+    movq %rbp, %rsp
+    popq %rbp
     ret
 .L_peq_true:
     movq $1, %rax
@@ -668,35 +857,52 @@ rubix_rt_poly_eq:
 .section .text.rubix_rt_poly_add, "ax", @progbits
 .globl rubix_rt_poly_add
 rubix_rt_poly_add:
-    cmpq $0x400000, %rdi
-    jae .L_padd_str
-    cmpq $0x400000, %rsi
-    jae .L_padd_str
-    movq %rdi, %rax
-    addq %rsi, %rax
-    ret
-.L_padd_str:
-    # Convert non-string to string if needed
     pushq %rbp
     movq %rsp, %rbp
     pushq %r12
     pushq %r13
-    
     movq %rdi, %r12
     movq %rsi, %r13
     
-    cmpq $0x400000, %r12
-    jae .L_a_is_str
+    # Check if r12 is string
+    movq %r12, %rdi
+    call rubix_rt_is_string_ptr
+    movq %rax, %r8          # r8 = is_r12_str
+    
+    # Check if r13 is string
+    movq %r13, %rdi
+    call rubix_rt_is_string_ptr
+    orq %rax, %r8           # r8 = either is string
+    
+    testq %r8, %r8
+    jnz .L_padd_do_str
+    
+    # Both are numbers: direct integer addition
+    movq %r12, %rax
+    addq %r13, %rax
+    popq %r13
+    popq %r12
+    movq %rbp, %rsp
+    popq %rbp
+    ret
+
+.L_padd_do_str:
+    movq %r12, %rdi
+    call rubix_rt_is_string_ptr
+    testq %rax, %rax
+    jnz .L_padd_a_ok
     movq %r12, %rdi
     call rubix_rt_int_to_str
     movq %rax, %r12
-.L_a_is_str:
-    cmpq $0x400000, %r13
-    jae .L_b_is_str
+.L_padd_a_ok:
+    movq %r13, %rdi
+    call rubix_rt_is_string_ptr
+    testq %rax, %rax
+    jnz .L_padd_b_ok
     movq %r13, %rdi
     call rubix_rt_int_to_str
     movq %rax, %r13
-.L_b_is_str:
+.L_padd_b_ok:
     movq %r12, %rdi
     movq %r13, %rsi
     call rubix_rt_str_concat
@@ -705,7 +911,6 @@ rubix_rt_poly_add:
     movq %rbp, %rsp
     popq %rbp
     ret
-
 
 .section .text.rubix_rt_print_str, "ax", @progbits
 .globl rubix_rt_print_str
@@ -746,25 +951,21 @@ rubix_rt_print_int:
 .globl print_poly
 rubix_rt_print_poly:
 print_poly:
-    movq heap_base(%rip), %rax
-    cmpq $0, %rax
-    je .L_pp_int
-    cmpq %rax, %rdi
-    jb .L_check_rodata
-    cmpq heap_end(%rip), %rdi
-    ja .L_pp_int
-    jmp .L_pp_str
-.L_check_rodata:
-    cmpq $0x400000, %rdi
-    jb .L_pp_int
-    cmpq $0x800000, %rdi
-    ja .L_pp_int
-    jmp .L_pp_str
+    pushq %rbp
+    movq %rsp, %rbp
+    pushq %rdi
+    call rubix_rt_is_string_ptr
+    popq %rdi
+    testq %rax, %rax
+    jz .L_pp_int
+    call rubix_rt_print_str
+    movq %rbp, %rsp
+    popq %rbp
+    ret
 .L_pp_int:
     call rubix_rt_print_int
-    ret
-.L_pp_str:
-    call rubix_rt_print_str
+    movq %rbp, %rsp
+    popq %rbp
     ret
 
 .section .text.rubix_rt_panic, "ax", @progbits
@@ -777,7 +978,19 @@ rubix_rt_panic:
     call sys_write
     popq %rdi
     
-    call rubix_rt_print_str
+    # Write message directly to stderr (fd 2)
+    pushq %rdi
+    call rubix_rt_str_len
+    movq %rax, %rdx     # count
+    popq %rsi           # buf
+    movq $2, %rdi       # stderr
+    call sys_write
+    
+    movq $2, %rdi
+    leaq newline_str(%rip), %rsi
+    movq $1, %rdx
+    call sys_write
+    
     movq $1, %rdi
     call sys_exit
 
@@ -811,6 +1024,8 @@ read_file:
     movq %rsp, %rbp
     pushq %rbx
     pushq %r12
+    pushq %r13
+    subq $152, %rsp     # 144 bytes struct stat + 8 bytes alignment
     
     # open(path, O_RDONLY, 0)
     movq $0, %rsi       # O_RDONLY
@@ -821,18 +1036,34 @@ read_file:
     jl .L_rf_fail
     movq %rax, %r12     # fd
     
-    # Allocate 4MB file read buffer
-    movq $4194304, %rdi
+    # fstat(fd, statbuf)
+    movq %r12, %rdi
+    movq %rsp, %rsi     # statbuf on stack
+    movq $5, %rax       # SYS_fstat
+    syscall
+    
+    cmpq $0, %rax
+    jl .L_rf_stream_fallback
+    
+    movq 48(%rsp), %r13 # st_size from struct stat
+    cmpq $0, %r13
+    jle .L_rf_stream_fallback
+    
+    # Regular file: Allocate exact st_size + 1 byte
+    leaq 1(%r13), %rdi
     call rubix_rt_alloc
     movq %rax, %rbx     # buffer
     
-    # read(fd, buf, 4194304)
+    # read(fd, buf, st_size)
     movq %r12, %rdi
     movq %rbx, %rsi
-    movq $4194304, %rdx
+    movq %r13, %rdx
     call sys_read
     
-    # Null-terminate
+    cmpq $0, %rax
+    jge .L_rf_terminate
+    movq $0, %rax
+.L_rf_terminate:
     movb $0, (%rbx, %rax)
     
     # close(fd)
@@ -840,13 +1071,47 @@ read_file:
     call sys_close
     
     movq %rbx, %rax
+    addq $152, %rsp
+    popq %r13
     popq %r12
     popq %rbx
     movq %rbp, %rsp
     popq %rbp
     ret
+
+.L_rf_stream_fallback:
+    # Fallback for empty files, /proc, /sys streaming pseudo-files: 64KB buffer
+    movq $65536, %rdi
+    call rubix_rt_alloc
+    movq %rax, %rbx
+    
+    movq %r12, %rdi
+    movq %rbx, %rsi
+    movq $65535, %rdx
+    call sys_read
+    
+    cmpq $0, %rax
+    jge .L_rf_stream_term
+    movq $0, %rax
+.L_rf_stream_term:
+    movb $0, (%rbx, %rax)
+    
+    movq %r12, %rdi
+    call sys_close
+    
+    movq %rbx, %rax
+    addq $152, %rsp
+    popq %r13
+    popq %r12
+    popq %rbx
+    movq %rbp, %rsp
+    popq %rbp
+    ret
+
 .L_rf_fail:
     leaq empty_str(%rip), %rax
+    addq $152, %rsp
+    popq %r13
     popq %r12
     popq %rbx
     movq %rbp, %rsp
@@ -932,6 +1197,7 @@ run_command_host:
     movq %rsp, %rbp
     pushq %rbx
     pushq %r12
+    subq $16, %rsp      # thread-safe stack slot for status
     
     movq %rdi, %r12     # cmd string
     
@@ -942,14 +1208,15 @@ run_command_host:
     
     # Parent: wait4(pid, &status, 0, NULL)
     movq %rax, %rdi
-    leaq out_buf(%rip), %rsi
+    leaq -8(%rbp), %rsi
     movq $0, %rdx
     movq $0, %rcx
     call sys_wait4
     
-    movl out_buf(%rip), %eax
+    movl -8(%rbp), %eax
     sarl $8, %eax
     movslq %eax, %rax
+    addq $16, %rsp
     popq %r12
     popq %rbx
     movq %rbp, %rsp
@@ -992,6 +1259,8 @@ node_new:
     # rdi: kind, rsi: line, rdx: col, rcx: text
     movq g_node_count(%rip), %rax
     incq %rax
+    cmpq node_arena_capacity(%rip), %rax
+    jge .L_node_oom
     movq %rax, g_node_count(%rip)
     
     movq node_arena_ptr(%rip), %r8
@@ -1008,6 +1277,11 @@ node_new:
     movq $0, 48(%rax)       # type_id
     
     movq g_node_count(%rip), %rax
+    ret
+.L_node_oom:
+    leaq panic_prefix(%rip), %rdi
+    call rubix_rt_panic
+    movq $0, %rax
     ret
 
 .section .text.node_kind, "ax", @progbits
@@ -1049,6 +1323,8 @@ node_text:
 node_line:
     cmpq $0, %rdi
     jle .L_nl_zero
+    cmpq g_node_count(%rip), %rdi
+    jg .L_nl_zero
     movq node_arena_ptr(%rip), %rax
     shlq $6, %rdi
     addq %rdi, %rax
@@ -1063,6 +1339,8 @@ node_line:
 node_col:
     cmpq $0, %rdi
     jle .L_ncol_zero
+    cmpq g_node_count(%rip), %rdi
+    jg .L_ncol_zero
     movq node_arena_ptr(%rip), %rax
     shlq $6, %rdi
     addq %rdi, %rax
@@ -1077,6 +1355,8 @@ node_col:
 node_child:
     cmpq $0, %rdi
     jle .L_nc_zero
+    cmpq g_node_count(%rip), %rdi
+    jg .L_nc_zero
     movq node_arena_ptr(%rip), %rax
     shlq $6, %rdi
     addq %rdi, %rax
@@ -1091,6 +1371,8 @@ node_child:
 node_sibling:
     cmpq $0, %rdi
     jle .L_ns_zero
+    cmpq g_node_count(%rip), %rdi
+    jg .L_ns_zero
     movq node_arena_ptr(%rip), %rax
     shlq $6, %rdi
     addq %rdi, %rax
@@ -1105,11 +1387,55 @@ node_sibling:
 node_set_sibling:
     cmpq $0, %rdi
     jle .L_nss_done
+    cmpq g_node_count(%rip), %rdi
+    jg .L_nss_done
     movq node_arena_ptr(%rip), %rax
     shlq $6, %rdi
     addq %rdi, %rax
     movq %rsi, 40(%rax)
 .L_nss_done:
+    ret
+
+.section .text.node_set_child, "ax", @progbits
+.globl node_set_child
+node_set_child:
+    cmpq $0, %rdi
+    jle .L_nsc_done
+    cmpq g_node_count(%rip), %rdi
+    jg .L_nsc_done
+    movq node_arena_ptr(%rip), %rax
+    shlq $6, %rdi
+    addq %rdi, %rax
+    movq %rsi, 32(%rax)
+.L_nsc_done:
+    ret
+
+.section .text.node_set_kind, "ax", @progbits
+.globl node_set_kind
+node_set_kind:
+    cmpq $0, %rdi
+    jle .L_nsk_done
+    cmpq g_node_count(%rip), %rdi
+    jg .L_nsk_done
+    movq node_arena_ptr(%rip), %rax
+    shlq $6, %rdi
+    addq %rdi, %rax
+    movq %rsi, 0(%rax)
+.L_nsk_done:
+    ret
+
+.section .text.node_set_text, "ax", @progbits
+.globl node_set_text
+node_set_text:
+    cmpq $0, %rdi
+    jle .L_nstxt_done
+    cmpq g_node_count(%rip), %rdi
+    jg .L_nstxt_done
+    movq node_arena_ptr(%rip), %rax
+    shlq $6, %rdi
+    addq %rdi, %rax
+    movq %rsi, 24(%rax)
+.L_nstxt_done:
     ret
 
 .section .text.node_add_child, "ax", @progbits
@@ -1118,8 +1444,12 @@ node_add_child:
     # rdi: parent, rsi: child
     cmpq $0, %rdi
     jle .L_nac_done
+    cmpq g_node_count(%rip), %rdi
+    jg .L_nac_done
     cmpq $0, %rsi
     jle .L_nac_done
+    cmpq g_node_count(%rip), %rsi
+    jg .L_nac_done
     
     movq node_arena_ptr(%rip), %rax
     shlq $6, %rdi
@@ -1133,6 +1463,10 @@ node_add_child:
 .L_nac_find_tail:
     movq node_arena_ptr(%rip), %r8
 .L_nac_loop:
+    cmpq $0, %rcx
+    jle .L_nac_set_tail
+    cmpq g_node_count(%rip), %rcx
+    jg .L_nac_done
     shlq $6, %rcx
     addq %r8, %rcx
     movq 40(%rcx), %rdx     # cur.sibling
@@ -1150,6 +1484,8 @@ node_add_child:
 node_set_type:
     cmpq $0, %rdi
     jle .L_nst_done
+    cmpq g_node_count(%rip), %rdi
+    jg .L_nst_done
     movq node_arena_ptr(%rip), %rax
     shlq $6, %rdi
     addq %rdi, %rax
@@ -1162,6 +1498,8 @@ node_set_type:
 node_get_type:
     cmpq $0, %rdi
     jle .L_ngt_zero
+    cmpq g_node_count(%rip), %rdi
+    jg .L_ngt_zero
     movq node_arena_ptr(%rip), %rax
     shlq $6, %rdi
     addq %rdi, %rax
@@ -1287,8 +1625,8 @@ Circle:
 .section .text.Rectangle, "ax", @progbits
 .globl Rectangle
 Rectangle:
-    movq %rdi, %rsi     # w
-    movq %rsi, %rdx     # h
+    movq %rsi, %rdx     # h -> v2
+    movq %rdi, %rsi     # w -> v1
     movq $2, %rdi       # tag
     movq $0, %rcx
     jmp rubix_variant_new

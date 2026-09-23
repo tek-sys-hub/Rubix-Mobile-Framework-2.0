@@ -19,3 +19,8 @@
 .idea/
 .vscode/*
 !.vscode/settings.json
+
+# Local documentation & analysis notes
+PROJECT_ANALYSIS.txt
+*.txt
+

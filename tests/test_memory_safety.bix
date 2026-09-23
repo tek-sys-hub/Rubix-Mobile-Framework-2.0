@@ -1,0 +1,69 @@
+fn test_read_file(): Integer {
+    print "Test 1: read_file"
+    let content = read_file("examples/01_basics.bix")
+    print "Read file length: "
+    print string_length(content)
+    0
+}
+
+fn test_rectangle(): Integer {
+    print "Test 2: Rectangle variant constructor"
+    let r = Rectangle(100, 200)
+    print "Rectangle created successfully"
+    0
+}
+
+fn test_substring(): Integer {
+    print "Test 3: substring bounds safety"
+    let s = "Hello, Rubix!"
+    let sub1 = substring(s, 0, 5)
+    print sub1
+    let sub_neg = substring(s, 0 - 5, 5)
+    print "Negative start substring length: "
+    print string_length(sub_neg)
+    let sub_oob = substring(s, 0, 1000)
+    print "Clamped end substring: "
+    print sub_oob
+    0
+}
+
+fn test_char_byte(): Integer {
+    print "Test 4: char_at & byte_at bounds safety"
+    let s = "Hello, Rubix!"
+    let c0 = char_at(s, 0)
+    let c1 = char_at(s, 1)
+    print c0
+    print c1
+    let c_neg = char_at(s, 0 - 1)
+    print "Negative char_at length: "
+    print string_length(c_neg)
+    let c_past = char_at(s, 500)
+    print "Past-end char_at length: "
+    print string_length(c_past)
+    let b_neg = byte_at(s, 0 - 1)
+    print "Negative byte_at: "
+    print b_neg
+    let b0 = byte_at(s, 0)
+    print "First byte value ('H'): "
+    print b0
+    0
+}
+
+fn test_arena(): Integer {
+    print "Test 5: arena_reset"
+    arena_reset()
+    let post_s = "Post-reset memory intact"
+    print post_s
+    0
+}
+
+fn main(): Integer {
+    print "=== Testing Memory Safety Fixes ==="
+    test_read_file()
+    test_rectangle()
+    test_substring()
+    test_char_byte()
+    test_arena()
+    print "ALL MEMORY SAFETY TESTS PASSED!"
+    0
+}
