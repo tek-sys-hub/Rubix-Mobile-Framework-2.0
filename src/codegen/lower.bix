@@ -345,6 +345,7 @@ def gen_node(ctx: CodegenContext, node: Integer) do
         loop_start = new_label_str(ctx)
         loop_end = new_label_str(ctx)
         
+        emit(ctx, "    .p2align 4,,10")
         emit(ctx, loop_start + ":")
         gen_node(ctx, cond)
         emit(ctx, "    cmpq $0, %rax")
@@ -427,6 +428,7 @@ def gen_node(ctx: CodegenContext, node: Integer) do
         
         emit(ctx, "")
         emit(ctx, ".section .text." + func_name + ", \"ax\", @progbits")
+        emit(ctx, "    .p2align 4,,15")
         emit(ctx, ".globl " + func_name)
         emit(ctx, ".type " + func_name + ", @function")
         emit(ctx, func_name + ":")

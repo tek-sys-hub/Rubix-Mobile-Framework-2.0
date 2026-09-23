@@ -1076,7 +1076,7 @@ gen_node_x86:
 	.string	"    cmpq $0, %%rax\n    je .L_else_%d\n"
 	.section	.rodata.str1.1
 .LC86:
-	.string	".L_loop_start_%d:\n"
+	.string	"    .p2align 4,,10\n.L_loop_start_%d:\n"
 .LC87:
 	.string	"    jge .L_loop_end_%d\n"
 .LC88:
@@ -1170,7 +1170,7 @@ gen_node_x86:
 	.section	.rodata.str1.8
 	.align 8
 .LC120:
-	.string	"\n.section .text.%s, \"ax\", @progbits\n.globl %s\n.type %s, @function\n"
+	.string	"\n.section .text.%s, \"ax\", @progbits\n    .p2align 4,,15\n.globl %s\n.type %s, @function\n"
 	.section	.rodata.str1.1
 .LC121:
 	.string	"%s:\n"
