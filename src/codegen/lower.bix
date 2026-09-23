@@ -153,7 +153,7 @@ def gen_node(ctx: CodegenContext, node: Integer) do
         t_right = get_node_type(right)
         
         # Fast-Path: Immediate Arithmetic Optimization
-        if rk == 9 and (text == "-" or text == "+" or text == "<=" or text == "<" or text == ">" or text == ">=" or text == "==" or text == "!=") do
+        if rk == 9 and (text == "-" or text == "+" or text == "<=" or text == "<" or text == ">" or text == ">=" or text == "==" or text == "!=" or text == "*" or text == "/" or text == "%") do
             gen_node(ctx, left)
             if text == "-" do
                 emit(ctx, "    subq $" + rt + ", %rax")
@@ -166,6 +166,45 @@ def gen_node(ctx: CodegenContext, node: Integer) do
                     emit(ctx, "    call rubix_rt_str_concat")
                 else do
                     emit(ctx, "    addq $" + rt + ", %rax")
+                end
+            else if text == "*" do
+                if rt == "2" do
+                    emit(ctx, "    addq %rax, %rax")
+                else if rt == "4" do
+                    emit(ctx, "    shlq $2, %rax")
+                else if rt == "8" do
+                    emit(ctx, "    shlq $3, %rax")
+                else do
+                    emit(ctx, "    imulq $" + rt + ", %rax")
+                end
+            else if text == "/" do
+                if rt == "2" do
+                    emit(ctx, "    shrq $1, %rax")
+                else if rt == "4" do
+                    emit(ctx, "    shrq $2, %rax")
+                else if rt == "8" do
+                    emit(ctx, "    shrq $3, %rax")
+                else if rt == "16" do
+                    emit(ctx, "    shrq $4, %rax")
+                else do
+                    emit(ctx, "    movq $" + rt + ", %rbx")
+                    emit(ctx, "    cqto")
+                    emit(ctx, "    idivq %rbx")
+                end
+            else if text == "%" do
+                if rt == "2" do
+                    emit(ctx, "    andq $1, %rax")
+                else if rt == "4" do
+                    emit(ctx, "    andq $3, %rax")
+                else if rt == "8" do
+                    emit(ctx, "    andq $7, %rax")
+                else if rt == "16" do
+                    emit(ctx, "    andq $15, %rax")
+                else do
+                    emit(ctx, "    movq $" + rt + ", %rbx")
+                    emit(ctx, "    cqto")
+                    emit(ctx, "    idivq %rbx")
+                    emit(ctx, "    movq %rdx, %rax")
                 end
             else if text == "<=" do
                 emit(ctx, "    cmpq $" + rt + ", %rax")

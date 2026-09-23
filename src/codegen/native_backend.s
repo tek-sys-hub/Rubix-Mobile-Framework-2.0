@@ -912,6 +912,16 @@ gen_node_x86:
 	.string	"    subq $%s, %%rax\n"
 .LC28:
 	.string	"    addq $%s, %%rax\n"
+.LC_imul_imm:
+	.string	"    imulq $%s, %%rax\n"
+.LC_shrq_1:
+	.string	"    shrq $1, %%rax\n"
+.LC_shrq_imm:
+	.string	"    movq $%s, %%rbx\n    cqto\n    idivq %%rbx\n"
+.LC_andq_1:
+	.string	"    andq $1, %%rax\n"
+.LC_andq_imm:
+	.string	"    movq $%s, %%rbx\n    cqto\n    idivq %%rbx\n    movq %%rdx, %%rax\n"
 	.section	.rodata.str1.8
 	.align 8
 .LC29:
@@ -3165,6 +3175,105 @@ gen_node_x86.part.0:
 	cmpb	$0, 1(%r13)
 	je	.L485
 .L583:
+	# Fast immediate arithmetic optimization for '*', '/', '%'
+	cmpl	$42, %ebp
+	jne	.L_chk_div
+	cmpb	$0, 1(%r13)
+	jne	.L_chk_div
+	movq	104(%rsp), %rax
+	subq	%fs:40, %rax
+	jne	.L657
+	movq	(%rbx), %rdi
+	movq	128(%rsp), %rbp
+	movq	%r15, %rdx
+	xorl	%eax, %eax
+	movq	160(%rsp), %r15
+	movq	120(%rsp), %rbx
+	leaq	.LC_imul_imm(%rip), %rsi
+	movq	136(%rsp), %r12
+	movq	144(%rsp), %r13
+	movq	152(%rsp), %r14
+	addq	$168, %rsp
+	jmp	fprintf@PLT
+.L_chk_div:
+	cmpl	$47, %ebp
+	jne	.L_chk_mod
+	cmpb	$0, 1(%r13)
+	jne	.L_chk_mod
+	cmpb	$50, (%r15)
+	jne	.L_div_general
+	cmpb	$0, 1(%r15)
+	jne	.L_div_general
+	movq	104(%rsp), %rax
+	subq	%fs:40, %rax
+	jne	.L657
+	movq	(%rbx), %rdi
+	movq	160(%rsp), %r15
+	leaq	.LC_shrq_1(%rip), %rsi
+	xorl	%eax, %eax
+	movq	120(%rsp), %rbx
+	movq	128(%rsp), %rbp
+	movq	136(%rsp), %r12
+	movq	144(%rsp), %r13
+	movq	152(%rsp), %r14
+	addq	$168, %rsp
+	jmp	fprintf@PLT
+.L_div_general:
+	movq	104(%rsp), %rax
+	subq	%fs:40, %rax
+	jne	.L657
+	movq	(%rbx), %rdi
+	movq	128(%rsp), %rbp
+	movq	%r15, %rdx
+	xorl	%eax, %eax
+	movq	160(%rsp), %r15
+	movq	120(%rsp), %rbx
+	leaq	.LC_shrq_imm(%rip), %rsi
+	movq	136(%rsp), %r12
+	movq	144(%rsp), %r13
+	movq	152(%rsp), %r14
+	addq	$168, %rsp
+	jmp	fprintf@PLT
+.L_chk_mod:
+	cmpl	$37, %ebp
+	jne	.L_not_fast_op
+	cmpb	$0, 1(%r13)
+	jne	.L_not_fast_op
+	cmpb	$50, (%r15)
+	jne	.L_mod_general
+	cmpb	$0, 1(%r15)
+	jne	.L_mod_general
+	movq	104(%rsp), %rax
+	subq	%fs:40, %rax
+	jne	.L657
+	movq	(%rbx), %rdi
+	movq	160(%rsp), %r15
+	leaq	.LC_andq_1(%rip), %rsi
+	xorl	%eax, %eax
+	movq	120(%rsp), %rbx
+	movq	128(%rsp), %rbp
+	movq	136(%rsp), %r12
+	movq	144(%rsp), %r13
+	movq	152(%rsp), %r14
+	addq	$168, %rsp
+	jmp	fprintf@PLT
+.L_mod_general:
+	movq	104(%rsp), %rax
+	subq	%fs:40, %rax
+	jne	.L657
+	movq	(%rbx), %rdi
+	movq	128(%rsp), %rbp
+	movq	%r15, %rdx
+	xorl	%eax, %eax
+	movq	160(%rsp), %r15
+	movq	120(%rsp), %rbx
+	leaq	.LC_andq_imm(%rip), %rsi
+	movq	136(%rsp), %r12
+	movq	144(%rsp), %r13
+	movq	152(%rsp), %r14
+	addq	$168, %rsp
+	jmp	fprintf@PLT
+.L_not_fast_op:
 	movzbl	0(%r13), %edx
 .L220:
 	cmpl	$60, %edx
@@ -3241,6 +3350,17 @@ gen_node_x86.part.0:
 	jmp	fprintf@PLT
 .L509:
 	movzbl	0(%r13), %edx
+	cmpl	$42, %edx
+	je	.L_fast_check_single
+	cmpl	$47, %edx
+	je	.L_fast_check_single
+	cmpl	$37, %edx
+	je	.L_fast_check_single
+	jmp	.L_not_mul_div_mod
+.L_fast_check_single:
+	cmpb	$0, 1(%r13)
+	je	.L212
+.L_not_mul_div_mod:
 	cmpl	$60, %edx
 	jne	.L510
 	cmpb	$61, 1(%r13)

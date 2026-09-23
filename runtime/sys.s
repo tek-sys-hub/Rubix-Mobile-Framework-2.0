@@ -774,19 +774,54 @@ ends_with:
 .section .text.rubix_rt_is_string_ptr, "ax", @progbits
 .globl rubix_rt_is_string_ptr
 rubix_rt_is_string_ptr:
-    # 1. In .rodata binary section (string literals: 0x400000..0x10000000)
+    # 1. In .rodata binary section (string literals: 0x400000..0x480000)
     cmpq $0x400000, %rdi
     jb .L_not_str
-    cmpq $0x10000000, %rdi
-    jbe .L_is_str
-    # 2. In 64-bit user address space (mmap heap and stack: 0x700000000000..0x7fffffffffff)
-    movabsq $0x700000000000, %rax
+    cmpq $0x480000, %rdi
+    jbe .L_check_rodata_str
+    # 2. In dynamic heap: heap_base <= rdi < heap_curr
+    movq heap_base(%rip), %rax
+    testq %rax, %rax
+    jz .L_check_stack
+    cmpq %rax, %rdi
+    jb .L_check_stack
+    movq heap_curr(%rip), %rax
+    cmpq %rax, %rdi
+    jae .L_check_stack
+    jmp .L_check_heap_str
+.L_check_stack:
+    # 3. In user stack space: 0x7ff000000000..0x7fffffffffff
+    movabsq $0x7ff000000000, %rax
     cmpq %rax, %rdi
     jb .L_not_str
     movabsq $0x7fffffffffff, %rax
     cmpq %rax, %rdi
     ja .L_not_str
+.L_check_heap_str:
+    movzbq (%rdi), %rax
+    cmpq $0, %rax
+    je .L_not_str
+    cmpq $9, %rax
+    jb .L_not_str
+    cmpq $126, %rax
+    ja .L_not_str
+    cmpq $10, %rax
+    je .L_is_str
+    cmpq $9, %rax
+    je .L_is_str
+    cmpq $32, %rax
+    jb .L_not_str
 .L_is_str:
+    movq $1, %rax
+    ret
+.L_check_rodata_str:
+    movzbq (%rdi), %rax
+    cmpq $0, %rax
+    je .L_is_str
+    cmpq $9, %rax
+    jb .L_not_str
+    cmpq $126, %rax
+    ja .L_not_str
     movq $1, %rax
     ret
 .L_not_str:
