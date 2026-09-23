@@ -1,0 +1,28 @@
+# Pure Rubix Algorithmic Benchmark: 500,000 Collatz Sequences
+fn collatz_steps(start: Integer): Integer {
+    mut n = start
+    mut steps = 0
+    loop n > 1 {
+        if n % 2 == 0 {
+            n = n / 2
+        } else {
+            n = (n * 3) + 1
+        }
+        steps = steps + 1
+    }
+    steps
+}
+
+fn main(): Integer {
+    print "Running 500,000 Collatz sequences in pure Rubix..."
+    mut i = 1
+    mut total_steps = 0
+    loop i <= 500000 {
+        total_steps = total_steps + collatz_steps(i)
+        i = i + 1
+    }
+    print "Total sequences computed: 500000"
+    print "Total steps across all sequences:"
+    print total_steps
+    0
+}

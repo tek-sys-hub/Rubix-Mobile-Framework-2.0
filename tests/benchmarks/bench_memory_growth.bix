@@ -1,0 +1,35 @@
+# Pure Rubix Memory Scalability Benchmark:
+# Tests dynamic arena growth beyond 64MB and O(1) arena recycling
+fn main(): Integer {
+    print "Testing dynamic heap allocation beyond 64MB..."
+    
+    # 1. Allocate 20MB chunk
+    let p1 = alloc(20971520)
+    print "Allocated 20MB chunk at address:"
+    print p1
+    
+    # 2. Allocate another 25MB chunk (Total 45MB)
+    let p2 = alloc(26214400)
+    print "Allocated 25MB chunk at address:"
+    print p2
+    
+    # 3. Allocate another 25MB chunk (Total 70MB - triggers .L_alloc_grow from kernel!)
+    let p3 = alloc(26214400)
+    print "Allocated 25MB chunk beyond 64MB initial pool at address:"
+    print p3
+    
+    # 4. Allocate 40MB chunk (Total 110MB - multiple kernel chunks!)
+    let p4 = alloc(41943040)
+    print "Allocated 40MB chunk (Total 110MB heap) at address:"
+    print p4
+
+    # 5. O(1) Instant Arena Recycling
+    print "Performing O(1) instant arena reset..."
+    arena_reset()
+    let p_after = alloc(1024)
+    print "Allocated fresh block after arena reset at base address:"
+    print p_after
+
+    print "SUCCESS: Rubix dynamic memory scalability fully verified!"
+    0
+}

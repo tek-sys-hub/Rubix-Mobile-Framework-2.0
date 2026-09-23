@@ -1,0 +1,15 @@
+# Pure Rubix Raw Compute Benchmark: 100,000,000 tight arithmetic operations
+fn main(): Integer {
+    print "Starting 100,000,000 raw compute operations in pure Rubix..."
+    mut counter = 0
+    mut sum = 0
+    loop counter < 100000000 {
+        sum = sum + 1
+        counter = counter + 1
+    }
+    print "Completed iterations:"
+    print counter
+    print "Final sum:"
+    print sum
+    0
+}
