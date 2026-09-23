@@ -1,0 +1,48 @@
+# High-Speed Matrix Mathematics and Vector Tensor Calculations
+
+module std.matrix
+
+type Matrix2x2 {
+    m00: Integer,
+    m01: Integer,
+    m10: Integer,
+    m11: Integer
+}
+
+def mat2_new(a: Integer, b: Integer, c: Integer, d: Integer): Matrix2x2 do
+    Matrix2x2 { m00: a, m01: b, m10: c, m11: d }
+end
+
+def mat2_identity(): Matrix2x2 do
+    Matrix2x2 { m00: 1, m01: 0, m10: 0, m11: 1 }
+end
+
+def mat2_add(a: Matrix2x2, b: Matrix2x2): Matrix2x2 do
+    Matrix2x2 {
+        m00: a.m00 + b.m00,
+        m01: a.m01 + b.m01,
+        m10: a.m10 + b.m10,
+        m11: a.m11 + b.m11
+    }
+end
+
+def mat2_mul(a: Matrix2x2, b: Matrix2x2): Matrix2x2 do
+    Matrix2x2 {
+        m00: a.m00 * b.m00 + a.m01 * b.m10,
+        m01: a.m00 * b.m01 + a.m01 * b.m11,
+        m10: a.m10 * b.m00 + a.m11 * b.m10,
+        m11: a.m10 * b.m01 + a.m11 * b.m11
+    }
+end
+
+def mat2_determinant(m: Matrix2x2): Integer do
+    m.m00 * m.m11 - m.m01 * m.m10
+end
+
+def mat2_trace(m: Matrix2x2): Integer do
+    m.m00 + m.m11
+end
+
+def dot_product_3d(x1: Integer, y1: Integer, z1: Integer, x2: Integer, y2: Integer, z2: Integer): Integer do
+    x1 * x2 + y1 * y2 + z1 * z2
+end

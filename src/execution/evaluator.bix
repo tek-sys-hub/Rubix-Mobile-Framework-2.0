@@ -1,0 +1,313 @@
+# Unified runtime interpreter executing canonical AST nodes directly
+
+use src.syntax.ast
+
+type Value do
+    kind: Integer # 1: Void, 2: Int, 3: Float, 4: Bool, 5: String, 6: Struct, 7: Enum
+    int_val: Integer
+    bool_val: Boolean
+    str_val: String
+end
+
+def val_void(): Value do
+    Value { kind: 1, int_val: 0, bool_val: false, str_val: "" }
+end
+
+def val_int(v: Integer): Value do
+    Value { kind: 2, int_val: v, bool_val: false, str_val: "" }
+end
+
+def val_bool(v: Boolean): Value do
+    Value { kind: 4, int_val: 0, bool_val: v, str_val: "" }
+end
+
+def val_str(v: String): Value do
+    Value { kind: 5, int_val: 0, bool_val: false, str_val: v }
+end
+
+def is_truthy(v: Value): Boolean do
+    if v.kind == 4 do
+        v.bool_val
+    else if v.kind == 2 do
+        v.int_val != 0
+    else if v.kind == 5 do
+        v.str_val != ""
+    else do
+        false
+    end
+end
+
+def val_to_string(v: Value): String do
+    if v.kind == 5 do
+        v.str_val
+    else if v.kind == 2 do
+        int_to_string(v.int_val)
+    else if v.kind == 4 do
+        if v.bool_val do
+            "true"
+        else do
+            "false"
+        end
+    else do
+        "()"
+    end
+end
+
+
+type EvalContext do
+    has_returned: Boolean
+    return_val: Value
+    has_failed: Boolean
+    fail_msg: String
+    root_node: Integer
+end
+
+def init_eval_context(root: Integer): EvalContext do
+    EvalContext {
+        has_returned: false,
+        return_val: val_void(),
+        has_failed: false,
+        fail_msg: "",
+        root_node: root
+    }
+end
+
+
+def eval_node(ctx: EvalContext, node: Integer): Value do
+    if node <= 0 or ctx.has_returned or ctx.has_failed do
+        return val_void()
+    end
+    
+    kind = get_node_kind(node)
+    text = get_node_text(node)
+    
+    if kind == 9 do # Literal
+        type_id = get_node_type(node)
+        if type_id == 5 or text.starts_with("\"") == true do
+            val_str(text)
+        else if type_id == 4 or text == "true" or text == "false" do
+            val_bool(text == "true")
+        else do
+            val_int(string_to_int(text))
+        end
+        
+    else if kind == 8 do # Identifier
+        if text == "true" or text == "false" do
+            val_bool(text == "true")
+        else do
+            val_int(0)
+        end
+        
+    else if kind == 7 do # BinaryExpr
+        left_node = get_node_child(node)
+        right_node = get_node_sibling(left_node)
+        
+        if text == "and" do
+            lv = eval_node(ctx, left_node)
+            if is_truthy(lv) == false do
+                return val_bool(false)
+            end
+            rv = eval_node(ctx, right_node)
+            return val_bool(is_truthy(rv))
+        else if text == "or" do
+            lv = eval_node(ctx, left_node)
+            if is_truthy(lv) do
+                return val_bool(true)
+            end
+            rv = eval_node(ctx, right_node)
+            return val_bool(is_truthy(rv))
+        end
+        
+        lv = eval_node(ctx, left_node)
+        rv = eval_node(ctx, right_node)
+        
+        if text == "+" do
+            if lv.kind == 5 or rv.kind == 5 do
+                val_str(val_to_string(lv) + val_to_string(rv))
+            else do
+                val_int(lv.int_val + rv.int_val)
+            end
+        else if text == "-" do
+            val_int(lv.int_val - rv.int_val)
+        else if text == "*" do
+            val_int(lv.int_val * rv.int_val)
+        else if text == "/" do
+            if rv.int_val != 0 do
+                val_int(lv.int_val / rv.int_val)
+            else do
+                ctx.has_failed := true
+                ctx.fail_msg := "Division by zero"
+                val_void()
+            end
+        else if text == "%" do
+            if rv.int_val != 0 do
+                val_int(lv.int_val % rv.int_val)
+            else do
+                val_int(0)
+            end
+        else if text == "==" do
+            if lv.kind == 5 and rv.kind == 5 do
+                val_bool(lv.str_val == rv.str_val)
+            else do
+                val_bool(lv.int_val == rv.int_val)
+            end
+        else if text == "!=" do
+            if lv.kind == 5 and rv.kind == 5 do
+                val_bool(lv.str_val != rv.str_val)
+            else do
+                val_bool(lv.int_val != rv.int_val)
+            end
+        else if text == "<" do
+            val_bool(lv.int_val < rv.int_val)
+        else if text == "<=" do
+            val_bool(lv.int_val <= rv.int_val)
+        else if text == ">" do
+            val_bool(lv.int_val > rv.int_val)
+        else if text == ">=" do
+            val_bool(lv.int_val >= rv.int_val)
+        else do
+            val_void()
+        end
+        
+    else if kind == 10 do # UnaryExpr
+        operand = get_node_child(node)
+        v = eval_node(ctx, operand)
+        if text == "-" do
+            val_int(-v.int_val)
+        else if text == "not" or text == "!" do
+            val_bool(is_truthy(v) == false)
+        else do
+            v
+        end
+        
+    else if kind == 19 do # Return
+        expr = get_node_child(node)
+        if expr > 0 do
+            ctx.return_val := eval_node(ctx, expr)
+        else do
+            ctx.return_val := val_void()
+        end
+        ctx.has_returned := true
+        ctx.return_val
+        
+    else if kind == 4 do # If
+        cond_node = get_node_child(node)
+        cond_val = eval_node(ctx, cond_node)
+        
+        then_node = get_node_sibling(cond_node)
+        if is_truthy(cond_val) do
+            eval_node(ctx, then_node)
+        else do
+            if then_node > 0 do
+                else_node = get_node_sibling(then_node)
+                if else_node > 0 do
+                    eval_node(ctx, else_node)
+                else do
+                    val_void()
+                end
+            else do
+                val_void()
+            end
+        end
+        
+    else if kind == 11 do # Match
+        target_node = get_node_child(node)
+        target_val = eval_node(ctx, target_node)
+        
+        arm_node = get_node_sibling(target_node)
+        match_res = val_void()
+        loop arm_node > 0 and not ctx.has_returned and not ctx.has_failed do
+            pat = get_node_child(arm_node)
+            body = get_node_sibling(pat)
+            match_res := eval_node(ctx, body)
+            arm_node := get_node_sibling(arm_node)
+        end
+        match_res
+        
+    else if kind == 5 do # Loop
+        cond_node = get_node_child(node)
+        body_node = get_node_sibling(cond_node)
+        
+        loop_res = val_void()
+        loop is_truthy(eval_node(ctx, cond_node)) == true and ctx.has_returned == false and ctx.has_failed == false do
+            loop_res := eval_node(ctx, body_node)
+        end
+        loop_res
+        
+    else if kind == 30 do # Print
+        expr = get_node_child(node)
+        v = eval_node(ctx, expr)
+        print val_to_string(v)
+        val_void()
+        
+    else if kind == 31 do # Fail
+        expr = get_node_child(node)
+        v = eval_node(ctx, expr)
+        ctx.has_failed := true
+        ctx.fail_msg := val_to_string(v)
+        print "Panic: " + ctx.fail_msg
+        val_void()
+        
+    else if kind == 3 or kind == 1 do # Block or Program
+        stmt = get_node_child(node)
+        last_val = val_void()
+        loop stmt > 0 and not ctx.has_returned and not ctx.has_failed do
+            last_val := eval_node(ctx, stmt)
+            stmt := get_node_sibling(stmt)
+        end
+        last_val
+        
+    else do
+        val_void()
+    end
+end
+
+def find_main_function(prog_node: Integer): Integer do
+    child = get_node_child(prog_node)
+    found = 0
+    loop child > 0 and found == 0 do
+        if get_node_kind(child) == 2 and get_node_text(child) == "main" do
+            found := child
+        else do
+            child := get_node_sibling(child)
+        end
+    end
+    found
+end
+
+def evaluate_program(root_node: Integer): Integer do
+    ctx = init_eval_context(root_node)
+    eval_node(ctx, root_node)
+    
+    main_func = find_main_function(root_node)
+    if main_func > 0 do
+        child = get_node_child(main_func)
+        body_node = 0
+        loop child > 0 do
+            if get_node_kind(child) == 3 do # Block
+                body_node := child
+            end
+            child := get_node_sibling(child)
+        end
+        
+        if body_node > 0 do
+            res = eval_node(ctx, body_node)
+            if ctx.has_returned do
+                res := ctx.return_val
+            end
+            if ctx.has_failed do
+                1
+            else do
+                res.int_val
+            end
+        else do
+            0
+        end
+    else do
+        if ctx.has_failed do
+            1
+        else do
+            0
+        end
+    end
+end

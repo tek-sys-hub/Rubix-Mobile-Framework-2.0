@@ -1,0 +1,112 @@
+
+# AST Node Kinds:
+# 1  = Program
+# 2  = Function (fn)
+# 3  = Block ({ ... })
+# 4  = If (if ... else ...)
+# 5  = Loop (loop ...)
+# 6  = Reassignment (x = val)
+# 7  = BinaryExpr (left op right)
+# 8  = Identifier
+# 9  = Literal (Int, Float, String, Bool)
+# 10 = UnaryExpr (op expr)
+# 11 = Match (match expr { ... })
+# 12 = MatchArm (pattern => expr)
+# 13 = Parameter (name: Type)
+# 14 = TypeDecl (type Name { ... })
+# 15 = Call (func(args...))
+# 16 = StructInit (Type { field: val, ... })
+# 17 = MemberAccess (obj.field)
+# 18 = Use (use path.to.mod)
+# 19 = Return (return expr)
+# 20 = Let (let x = val)
+# 21 = Mut (mut x = val)
+# 22 = EnumDecl (enum Name { ... })
+# 23 = EnumVariant (Variant(Type...))
+# 24 = For (for x in expr { ... })
+# 25 = Lambda (fn(args) => expr)
+# 26 = Try (expr?)
+# 27 = IndexAccess (obj[idx])
+# 28 = Range (start..end)
+# 29 = ListLiteral ([e1, e2, ...])
+
+type ASTNode do
+    kind: Integer
+    type_id: Integer
+    line: Integer
+    column: Integer
+    text: String
+    first_child: Integer
+    next_sibling: Integer
+end
+
+def create_node(kind: Integer, line: Integer, col: Integer, text: String): Integer do
+    node_new(kind, line, col, text)
+end
+
+def get_node_kind(node: Integer): Integer do
+    node_kind(node)
+end
+
+def get_node_text(node: Integer): String do
+    node_text(node)
+end
+
+def get_node_line(node: Integer): Integer do
+    node_line(node)
+end
+
+def get_node_col(node: Integer): Integer do
+    node_col(node)
+end
+
+def get_node_child(node: Integer): Integer do
+    node_child(node)
+end
+
+def get_node_sibling(node: Integer): Integer do
+    node_sibling(node)
+end
+
+def add_child(parent: Integer, child: Integer) do
+    if parent > 0 and child > 0 do
+        node_add_child(parent, child)
+    end
+end
+
+def set_node_type(node: Integer, type_id: Integer) do
+    if node > 0 do
+        node_set_type(node, type_id)
+    end
+end
+
+def set_node_kind(node: Integer, kind: Integer) do
+    if node > 0 do
+        node_set_kind(node, kind)
+    end
+end
+
+def set_node_text(node: Integer, text: String) do
+    if node > 0 do
+        node_set_text(node, text)
+    end
+end
+
+def set_node_child(node: Integer, child: Integer) do
+    if node > 0 do
+        node_set_child(node, child)
+    end
+end
+
+
+def get_node_type(node: Integer): Integer do
+    if node > 0 do
+        node_get_type(node)
+    else do
+        0
+    end
+end
+
+def get_total_node_count(): Integer do
+    node_count()
+end

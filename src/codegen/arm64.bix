@@ -1,0 +1,126 @@
+# Generates native AArch64 machine assembly for Linux ELF, Android, and Apple Silicon macOS (Mach-O)
+
+use src.codegen.target
+
+type ARM64Emitter do
+    instructions: String
+    string_table: String
+    string_count: Integer
+    label_count: Integer
+    symbol_prefix: String
+    is_darwin: Boolean
+    stack_offset: Integer
+end
+
+def init_arm64_emitter(target: Target): ARM64Emitter do
+    mut prefix = ""
+    mut is_mac = false
+    if target.os == "macos" or target.abi == "darwin_arm64" do
+        prefix := "_"
+        is_mac := true
+    end
+    
+    ARM64Emitter {
+        instructions: "",
+        string_table: "",
+        string_count: 0,
+        label_count: 1,
+        symbol_prefix: prefix,
+        is_darwin: is_mac,
+        stack_offset: 16
+    }
+end
+
+def emit_a64(e: ARM64Emitter, line: String) do
+    e.instructions := e.instructions + line + "\n"
+end
+
+def new_a64_label(e: ARM64Emitter): String do
+    lbl = ".L_a64_" + int_to_string(e.label_count)
+    e.label_count := e.label_count + 1
+    lbl
+end
+
+def add_a64_string(e: ARM64Emitter, str_val: String): String do
+    lbl = ".LC_a64_str_" + int_to_string(e.string_count)
+    e.string_count := e.string_count + 1
+    e.string_table := e.string_table + lbl + ":\n    .asciz \"" + str_val + "\"\n"
+    lbl
+end
+
+def emit_a64_header(e: ARM64Emitter) do
+    emit_a64(e, "// Rubix Native AArch64 Assembly")
+    if e.is_darwin == false do
+        emit_a64(e, ".arch armv8-a")
+        emit_a64(e, ".text")
+    else do
+        emit_a64(e, ".section __TEXT,__text,regular,pure_instructions")
+    end
+end
+
+def emit_a64_func_prologue(e: ARM64Emitter, func_name: String, stack_size: Integer) do
+    mut sym = func_name
+    if sym == "main" do
+        sym := "rubix_main"
+    end
+    full_sym = e.symbol_prefix + sym
+    
+    if e.is_darwin == false do
+        emit_a64(e, "\n.section .text." + sym + ", \"ax\", %progbits")
+        emit_a64(e, ".globl " + full_sym)
+        emit_a64(e, ".type " + full_sym + ", %function")
+    else do
+        emit_a64(e, "\n.globl " + full_sym)
+        emit_a64(e, ".p2align 2")
+    end
+    
+    emit_a64(e, full_sym + ":")
+    emit_a64(e, "    stp x29, x30, [sp, #-16]!")
+    emit_a64(e, "    mov x29, sp")
+    
+    # 16-byte aligned stack allocation
+    mut aligned_stack = stack_size
+    if aligned_stack < 32 do
+        aligned_stack := 32
+    end
+    if aligned_stack % 16 != 0 do
+        aligned_stack := aligned_stack + (16 - (aligned_stack % 16))
+    end
+    emit_a64(e, "    sub sp, sp, #" + int_to_string(aligned_stack))
+end
+
+def emit_a64_func_epilogue(e: ARM64Emitter) do
+    emit_a64(e, "    mov sp, x29")
+    emit_a64(e, "    ldp x29, x30, [sp], #16")
+    emit_a64(e, "    ret")
+end
+
+def emit_a64_load_imm(e: ARM64Emitter, reg: String, val: Integer) do
+    emit_a64(e, "    mov " + reg + ", #" + int_to_string(val))
+end
+
+def emit_a64_load_string(e: ARM64Emitter, reg: String, lbl: String) do
+    if e.is_darwin == false do
+        emit_a64(e, "    adrp " + reg + ", " + lbl)
+        emit_a64(e, "    add " + reg + ", " + reg + ", :lo12:" + lbl)
+    else do
+        emit_a64(e, "    adrp " + reg + ", " + lbl + "@PAGE")
+        emit_a64(e, "    add " + reg + ", " + reg + ", " + lbl + "@PAGEOFF")
+    end
+end
+
+def emit_a64_call(e: ARM64Emitter, func_name: String) do
+    full_sym = e.symbol_prefix + func_name
+    emit_a64(e, "    bl " + full_sym)
+end
+
+def emit_a64_rodata(e: ARM64Emitter) do
+    if e.string_count > 0 do
+        if e.is_darwin == false do
+            emit_a64(e, "\n.section .rodata")
+        else do
+            emit_a64(e, "\n.section __TEXT,__cstring,cstring_literals")
+        end
+        emit_a64(e, e.string_table)
+    end
+end

@@ -1,0 +1,57 @@
+# Native HTTP Request/Response Model, Router, and Status Encoders
+
+module std.http
+
+def http_status_text(code: Integer): String do
+    if code == 200 do
+        "200 OK"
+    else if code == 201 do
+        "201 Created"
+    else if code == 400 do
+        "400 Bad Request"
+    else if code == 404 do
+        "404 Not Found"
+    else if code == 500 do
+        "500 Internal Server Error"
+    else do
+        int_to_string(code) + " Response"
+    end
+end
+
+def http_response_text(status_code: Integer, body: String): String do
+    len = string_length(body)
+    "HTTP/1.1 " + http_status_text(status_code) + "\r\n" +
+    "Content-Type: text/plain; charset=utf-8\r\n" +
+    "Content-Length: " + int_to_string(len) + "\r\n" +
+    "Connection: close\r\n" +
+    "\r\n" +
+    body
+end
+
+def http_response_json(status_code: Integer, json_body: String): String do
+    len = string_length(json_body)
+    "HTTP/1.1 " + http_status_text(status_code) + "\r\n" +
+    "Content-Type: application/json; charset=utf-8\r\n" +
+    "Content-Length: " + int_to_string(len) + "\r\n" +
+    "Connection: close\r\n" +
+    "\r\n" +
+    json_body
+end
+
+def http_parse_method(raw_request: String): String do
+    if starts_with(raw_request, "GET") do
+        "GET"
+    else if starts_with(raw_request, "POST") do
+        "POST"
+    else if starts_with(raw_request, "PUT") do
+        "PUT"
+    else if starts_with(raw_request, "DELETE") do
+        "DELETE"
+    else do
+        "UNKNOWN"
+    end
+end
+
+def http_route_match(request_path: String, route_path: String): Boolean do
+    request_path == route_path
+end

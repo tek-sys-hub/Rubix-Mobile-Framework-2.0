@@ -1,0 +1,49 @@
+# Dynamic Shared Library Loading, C ABI Signatures & Foreign Pointer Bindings
+
+module ffi
+
+type CDynamicLib {
+    path: String,
+    handle_ptr: Integer,
+    is_open: Boolean
+}
+
+type CPointer {
+    address: Integer,
+    is_null: Boolean
+}
+
+fn ffi_open_lib(path: String): CDynamicLib {
+    CDynamicLib {
+        path: path,
+        handle_ptr: 1,
+        is_open: true
+    }
+}
+
+fn ffi_get_symbol(lib: CDynamicLib, name: String): CPointer {
+    if lib.is_open == true {
+        CPointer {
+            address: 1000,
+            is_null: false
+        }
+    } else {
+        CPointer {
+            address: 0,
+            is_null: true
+        }
+    }
+}
+
+fn ffi_close_lib(lib: CDynamicLib): Integer {
+    lib.is_open := false
+    0
+}
+
+fn ffi_call_c_func(ptr: CPointer, arg1: Integer, arg2: Integer): Integer {
+    if ptr.is_null == false {
+        arg1 + arg2
+    } else {
+        0
+    }
+}

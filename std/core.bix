@@ -1,0 +1,44 @@
+# Canonical assertions, identity, and core data types
+
+module std.core
+
+def assert_true(cond: Boolean, msg: String): Integer do
+    if cond == false do
+        print "assertion failed: " + msg
+    end
+    0
+end
+
+def assert_false(cond: Boolean, msg: String): Integer do
+    if cond == true do
+        print "assertion failed (expected false): " + msg
+    end
+    0
+end
+
+def assert_eq_int(actual: Integer, expected: Integer, msg: String): Integer do
+    if actual != expected do
+        print "assertion failed (" + msg + "): expected " + int_to_string(expected) + ", got " + int_to_string(actual)
+    end
+    0
+end
+
+def assert_eq_str(actual: String, expected: String, msg: String): Integer do
+    if actual != expected do
+        print "assertion failed (" + msg + "): expected `" + expected + "`, got `" + actual + "`"
+    end
+    0
+end
+
+def identity(x: Any): Any do
+    x
+end
+
+type Pair {
+    first: String,
+    second: String
+}
+
+def make_pair(a: String, b: String): Pair do
+    Pair { first: a, second: b }
+end

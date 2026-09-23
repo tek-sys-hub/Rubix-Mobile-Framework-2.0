@@ -1,0 +1,61 @@
+# 100% Pure Rubix Implementation of Runtime Interfaces and Primitives
+
+module runtime
+
+# Process & CLI Argument Access
+extern fn get_arg_count(): Integer
+extern fn get_arg(idx: Integer): String
+
+# Memory Management
+extern fn alloc(size: Integer): Integer
+extern fn free(ptr: Integer): Integer
+
+# Direct I/O and Printing
+extern fn print_poly(val: Any): Integer
+extern fn print_str(s: String): Integer
+extern fn print_int(n: Integer): Integer
+extern fn assert_eq_int(a: Integer, b: Integer): Integer
+extern fn run_command_host(cmd: String): Integer
+
+# String Manipulation Primitives
+extern fn string_length(s: String): Integer
+extern fn char_at(s: String, idx: Integer): String
+extern fn substring(s: String, start: Integer, end: Integer): String
+extern fn byte_at(s: String, idx: Integer): Integer
+extern fn int_to_string(n: Integer): String
+extern fn string_to_int(s: String): Integer
+extern fn starts_with(s: String, prefix: String): Boolean
+extern fn contains(s: String, sub: String): Boolean
+extern fn ends_with(s: String, suffix: String): Boolean
+
+# File System Operations
+extern fn read_file(path: String): String
+extern fn write_file(path: String, content: String): Boolean
+extern fn file_exists(path: String): Boolean
+
+# Left-Child Right-Sibling AST Arena Subsystem
+extern fn node_new(kind: Integer, line: Integer, col: Integer, text: String): Integer
+extern fn node_kind(id: Integer): Integer
+extern fn node_text(id: Integer): String
+extern fn node_line(id: Integer): Integer
+extern fn node_col(id: Integer): Integer
+extern fn node_child(id: Integer): Integer
+extern fn node_sibling(id: Integer): Integer
+extern fn node_set_sibling(id: Integer, sib: Integer): Integer
+extern fn node_add_child(parent: Integer, child: Integer): Integer
+extern fn node_set_type(id: Integer, type_id: Integer): Integer
+extern fn node_get_type(id: Integer): Integer
+extern fn node_count(): Integer
+extern fn node_arena_reset(): Integer
+
+# Standard ADT Variant Constructors
+extern fn Ok(val: Any): Any
+extern fn Err(val: Any): Any
+extern fn Some(val: Any): Any
+extern fn None(): Any
+extern fn Success(val: Any): Any
+extern fn Failure(val: Any): Any
+extern fn Process(val: Any): Any
+extern fn Circle(r: Integer): Any
+extern fn Rectangle(w: Integer, h: Integer): Any
+extern fn length(val: Any): Integer

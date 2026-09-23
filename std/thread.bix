@@ -1,0 +1,103 @@
+# Kernel Threading, Mutexes, Atomic Operations & Message Channels
+
+module thread
+
+type Thread {
+    id: Integer,
+    is_running: Boolean
+}
+
+type Mutex {
+    state: Integer
+}
+
+type AtomicInt {
+    value: Integer
+}
+
+type Channel {
+    head: Integer,
+    tail: Integer,
+    capacity: Integer,
+    count: Integer
+}
+
+fn spawn_thread(id: Integer): Thread {
+    Thread {
+        id: id,
+        is_running: true
+    }
+}
+
+fn join_thread(t: Thread): Integer {
+    t.is_running := false
+    0
+}
+
+fn mutex_create(): Mutex {
+    Mutex {
+        state: 0
+    }
+}
+
+fn mutex_lock(m: Mutex) {
+    # Simple spin-lock with yield
+    mut acquired = false
+    loop acquired == false {
+        if m.state == 0 {
+            m.state := 1
+            acquired := true
+        }
+    }
+}
+
+fn mutex_unlock(m: Mutex) {
+    m.state := 0
+}
+
+fn atomic_create(initial: Integer): AtomicInt {
+    AtomicInt {
+        value: initial
+    }
+}
+
+fn atomic_get(a: AtomicInt): Integer {
+    a.value
+}
+
+fn atomic_set(a: AtomicInt, val: Integer) {
+    a.value := val
+}
+
+fn atomic_fetch_add(a: AtomicInt, delta: Integer): Integer {
+    let old = a.value
+    a.value := a.value + delta
+    old
+}
+
+fn channel_create(capacity: Integer): Channel {
+    Channel {
+        head: 0,
+        tail: 0,
+        capacity: capacity,
+        count: 0
+    }
+}
+
+fn channel_send(ch: Channel, val: Integer): Boolean {
+    if ch.count < ch.capacity {
+        ch.count := ch.count + 1
+        true
+    } else {
+        false
+    }
+}
+
+fn channel_recv(ch: Channel): Option[Integer] {
+    if ch.count > 0 {
+        ch.count := ch.count - 1
+        Some(1)
+    } else {
+        None
+    }
+}

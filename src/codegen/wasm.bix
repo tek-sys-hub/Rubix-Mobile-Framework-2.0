@@ -1,0 +1,140 @@
+# Generates valid WebAssembly Text (WAT) and compiles to standard WebAssembly binary (.wasm)
+# Supports WASI and Browser environments
+
+use src.codegen.target
+
+type WASMEmitter do
+    wat_code: String
+    indent_level: Integer
+    data_section: String
+    data_offset: Integer
+    string_count: Integer
+    is_wasi: Boolean
+end
+
+def init_wasm_emitter(is_wasi: Boolean): WASMEmitter do
+    WASMEmitter {
+        wat_code: "",
+        indent_level: 0,
+        data_section: "",
+        data_offset: 1024,
+        string_count: 0,
+        is_wasi: is_wasi
+    }
+end
+
+def emit_wat_line(e: WASMEmitter, line: String) do
+    mut indent = ""
+    mut i = 0
+    loop i < e.indent_level do
+        indent := indent + "  "
+        i := i + 1
+    end
+    e.wat_code := e.wat_code + indent + line + "\n"
+end
+
+def add_wasm_data(e: WASMEmitter, str_val: String): Integer do
+    offset = e.data_offset
+    e.data_offset := e.data_offset + string_length(str_val) + 1
+    e.string_count := e.string_count + 1
+    e.data_section := e.data_section + "  (data (i32.const " + int_to_string(offset) + ") \"" + str_val + "\\00\")\n"
+    offset
+end
+
+def emit_wasm_header(e: WASMEmitter) do
+    emit_wat_line(e, "(module")
+    e.indent_level := e.indent_level + 1
+    emit_wat_line(e, ";; Rubix WebAssembly Target Module")
+    
+    if e.is_wasi do
+        emit_wat_line(e, "(import \"wasi_snapshot_preview1\" \"proc_exit\" (func $proc_exit (param i32)))")
+        emit_wat_line(e, "(import \"wasi_snapshot_preview1\" \"fd_write\" (func $fd_write (param i32 i32 i32 i32) (result i32)))")
+    else do
+        emit_wat_line(e, "(import \"env\" \"rubix_print_int\" (func $rubix_print_int (param i32)))")
+        emit_wat_line(e, "(import \"env\" \"rubix_print_str\" (func $rubix_print_str (param i32 i32)))")
+    end
+    
+    emit_wat_line(e, "(memory (export \"memory\") 2)")
+end
+
+def emit_wasm_footer(e: WASMEmitter) do
+    if e.string_count > 0 do
+        e.wat_code := e.wat_code + e.data_section
+    end
+    e.indent_level := e.indent_level - 1
+    emit_wat_line(e, ")")
+end
+
+def emit_wasm_func_start(e: WASMEmitter, func_name: String, has_return: Boolean) do
+    mut sig = "(func $" + func_name + " (export \"" + func_name + "\")"
+    if has_return do
+        sig := sig + " (result i32)"
+    end
+    emit_wat_line(e, sig)
+    e.indent_level := e.indent_level + 1
+end
+
+def emit_wasm_func_end(e: WASMEmitter) do
+    e.indent_level := e.indent_level - 1
+    emit_wat_line(e, ")")
+end
+
+def emit_wasm_const_i32(e: WASMEmitter, val: Integer) do
+    emit_wat_line(e, "i32.const " + int_to_string(val))
+end
+
+def emit_wasm_add(e: WASMEmitter) do
+    emit_wat_line(e, "i32.add")
+end
+
+def emit_wasm_sub(e: WASMEmitter) do
+    emit_wat_line(e, "i32.sub")
+end
+
+def emit_wasm_mul(e: WASMEmitter) do
+    emit_wat_line(e, "i32.mul")
+end
+
+def emit_wasm_div(e: WASMEmitter) do
+    emit_wat_line(e, "i32.div_s")
+end
+
+def emit_wasm_rem(e: WASMEmitter) do
+    emit_wat_line(e, "i32.rem_s")
+end
+
+def emit_wasm_eq(e: WASMEmitter) do
+    emit_wat_line(e, "i32.eq")
+end
+
+def emit_wasm_ne(e: WASMEmitter) do
+    emit_wat_line(e, "i32.ne")
+end
+
+def emit_wasm_lt(e: WASMEmitter) do
+    emit_wat_line(e, "i32.lt_s")
+end
+
+def emit_wasm_le(e: WASMEmitter) do
+    emit_wat_line(e, "i32.le_s")
+end
+
+def emit_wasm_gt(e: WASMEmitter) do
+    emit_wat_line(e, "i32.gt_s")
+end
+
+def emit_wasm_ge(e: WASMEmitter) do
+    emit_wat_line(e, "i32.ge_s")
+end
+
+def emit_wasm_call(e: WASMEmitter, func_name: String) do
+    emit_wat_line(e, "call $" + func_name)
+end
+
+def emit_wasm_local_get(e: WASMEmitter, var_name: String) do
+    emit_wat_line(e, "local.get $" + var_name)
+end
+
+def emit_wasm_local_set(e: WASMEmitter, var_name: String) do
+    emit_wat_line(e, "local.set $" + var_name)
+end

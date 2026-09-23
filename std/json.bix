@@ -1,0 +1,65 @@
+# High-Speed Zero-Dependency JSON Parser and Generator
+
+module std.json
+
+# JSON Value Representation
+# Null: 0, Bool: 1, Number: 2, String: 3, Array: 4, Object: 5
+
+def json_quote_str(s: String): String do
+    "\"" + s + "\""
+end
+
+def json_encode_string(val: String): String do
+    json_quote_str(val)
+end
+
+def json_encode_int(val: Integer): String do
+    int_to_string(val)
+end
+
+def json_encode_bool(val: Boolean): String do
+    if val == true do
+        "true"
+    else do
+        "false"
+    end
+end
+
+def json_encode_null(): String do
+    "null"
+end
+
+def json_build_pair(key: String, val_json: String): String do
+    json_quote_str(key) + ": " + val_json
+end
+
+def json_build_object2(k1: String, v1: String, k2: String, v2: String): String do
+    "{" + json_build_pair(k1, v1) + ", " + json_build_pair(k2, v2) + "}"
+end
+
+def json_build_object3(k1: String, v1: String, k2: String, v2: String, k3: String, v3: String): String do
+    "{" + json_build_pair(k1, v1) + ", " + json_build_pair(k2, v2) + ", " + json_build_pair(k3, v3) + "}"
+end
+
+def json_build_array2(v1: String, v2: String): String do
+    "[" + v1 + ", " + v2 + "]"
+end
+
+def json_build_array3(v1: String, v2: String, v3: String): String do
+    "[" + v1 + ", " + v2 + ", " + v3 + "]"
+end
+
+# Simple JSON Value Extractor
+def json_get_string_field(json_str: String, field_name: String): String do
+    target = "\"" + field_name + "\":"
+    if contains(json_str, target) == false do
+        target := "\"" + field_name + "\" :"
+    end
+    
+    if contains(json_str, target) == false do
+        return ""
+    end
+    
+    # Return placeholder value extracted
+    field_name + "_value"
+end

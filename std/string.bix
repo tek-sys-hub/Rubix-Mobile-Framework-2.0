@@ -1,0 +1,60 @@
+# Core string operations, predicates, search, and formatting
+
+def is_empty_str(s: String): Boolean do
+    s.length() == 0
+end
+
+def repeat_str(s: String, count: Integer): String do
+    if count <= 0 do
+        ""
+    else do
+        res = ""
+        i = 0
+        loop i < count do
+            res := res + s
+            i := i + 1
+        end
+        res
+    end
+end
+
+def pad_left(s: String, total_len: Integer, pad_char: String): String do
+    current_len = s.length()
+    if current_len >= total_len do
+        s
+    else do
+        diff = total_len - current_len
+        repeat_str(pad_char, diff) + s
+    end
+end
+
+def pad_right(s: String, total_len: Integer, pad_char: String): String do
+    current_len = s.length()
+    if current_len >= total_len do
+        s
+    else do
+        diff = total_len - current_len
+        s + repeat_str(pad_char, diff)
+    end
+end
+
+def count_substring(s: String, sub: String): Integer do
+    s_len = s.length()
+    sub_len = sub.length()
+    if sub_len == 0 or s_len < sub_len do
+        0
+    else do
+        count = 0
+        i = 0
+        limit = s_len - sub_len + 1
+        loop i < limit do
+            if s.substring(i, i + sub_len) == sub do
+                count := count + 1
+                i := i + sub_len
+            else do
+                i := i + 1
+            end
+        end
+        count
+    end
+end

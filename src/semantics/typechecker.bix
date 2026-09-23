@@ -1,0 +1,240 @@
+# Core static type inference, validation, and diagnostics
+
+use src.syntax.ast
+use src.diagnostics.reporter
+
+# Type IDs:
+# 1: Void, 2: Int, 3: Float, 4: Bool, 5: String, 6: Struct, 7: Enum, 8: Function
+
+type TypeContext do
+    error_count: Integer
+    warning_count: Integer
+    filename: String
+end
+
+def init_typechecker(filename: String): TypeContext do
+    TypeContext {
+        error_count: 0,
+        warning_count: 0,
+        filename: filename
+    }
+end
+
+def type_name(type_id: Integer): String do
+    if type_id == 1 do
+        "Void"
+    else if type_id == 2 do
+        "Int"
+    else if type_id == 3 do
+        "Float"
+    else if type_id == 4 do
+        "Bool"
+    else if type_id == 5 do
+        "String"
+    else if type_id == 6 do
+        "Struct"
+    else if type_id == 7 do
+        "Enum"
+    else if type_id == 8 do
+        "Function"
+    else do
+        "Unknown"
+    end
+end
+
+def record_type_error(ctx: TypeContext, line: Integer, col: Integer, msg: String, sug: String) do
+    report_error(ctx.filename, line, col, msg, sug)
+    ctx.error_count := ctx.error_count + 1
+end
+
+def check_type_compat(ctx: TypeContext, expected: Integer, actual: Integer, line: Integer, col: Integer): Boolean do
+    if expected == actual or expected == 0 or actual == 0 or (expected == 4 and actual == 2) or (expected == 2 and actual == 4) do
+        true
+    else do
+        msg = "mismatched types: expected `" + type_name(expected) + "`, found `" + type_name(actual) + "`"
+        record_type_error(ctx, line, col, msg, "ensure operand types match expected signature")
+        false
+    end
+end
+
+
+def infer_and_check(ctx: TypeContext, node: Integer): Integer do
+    if node <= 0 do
+        return 1 # Void
+    end
+    
+    kind = get_node_kind(node)
+    text = get_node_text(node)
+    line = get_node_line(node)
+    col = get_node_col(node)
+    
+    inferred_type = 1 # Default Void
+    
+    if kind == 9 do # Literal
+        inferred_type := get_node_type(node)
+        if inferred_type == 0 do
+            if text == "true" or text == "false" do
+                inferred_type := 4 # Bool
+            else if text.starts_with("\"") == true or text.contains(" ") == true do
+                inferred_type := 5 # String
+            else if text.contains(".") do
+                inferred_type := 3 # Float
+            else do
+                inferred_type := 2 # Int
+            end
+            set_node_type(node, inferred_type)
+        end
+        
+    else if kind == 8 do # Identifier
+        inferred_type := get_node_type(node)
+        if inferred_type == 0 do
+            inferred_type := 2 # Default to Int if untyped
+            set_node_type(node, inferred_type)
+        end
+        
+    else if kind == 7 do # BinaryExpr
+        left = get_node_child(node)
+        right = get_node_sibling(left)
+        
+        t_left = infer_and_check(ctx, left)
+        t_right = infer_and_check(ctx, right)
+        
+        if text == "+" or text == "-" or text == "*" or text == "/" or text == "%" do
+            # String concatenation
+            if text == "+" and (t_left == 5 or t_right == 5) do
+                inferred_type := 5 # String
+            else if t_left == 3 or t_right == 3 do
+                inferred_type := 3 # Float
+            else do
+                inferred_type := 2 # Int
+            end
+        else if text == "==" or text == "!=" do
+            inferred_type := 4 # Bool
+        else if text == "<" or text == ">" or text == "<=" or text == ">=" do
+            inferred_type := 4 # Bool
+        else if text == "and" or text == "or" do
+            check_type_compat(ctx, 4, t_left, line, col)
+            check_type_compat(ctx, 4, t_right, line, col)
+            inferred_type := 4 # Bool
+        end
+        set_node_type(node, inferred_type)
+        
+    else if kind == 10 do # UnaryExpr
+        operand = get_node_child(node)
+        t_op = infer_and_check(ctx, operand)
+        
+        if text == "not" or text == "!" do
+            check_type_compat(ctx, 4, t_op, line, col)
+            inferred_type := 4 # Bool
+        else if text == "-" do
+            inferred_type := t_op
+        end
+        set_node_type(node, inferred_type)
+        
+    else if kind == 20 or kind == 21 do # Let or Mut
+        left = get_node_child(node)
+        right = get_node_sibling(left)
+        t_val = infer_and_check(ctx, right)
+        set_node_type(left, t_val)
+        set_node_type(node, t_val)
+        inferred_type := t_val
+        
+    else if kind == 6 do # Reassignment
+        left = get_node_child(node)
+        right = get_node_sibling(left)
+        t_val = infer_and_check(ctx, right)
+        set_node_type(node, t_val)
+        inferred_type := t_val
+        
+    else if kind == 4 do # If
+        cond_node = get_node_child(node)
+        t_cond = infer_and_check(ctx, cond_node)
+        
+        then_node = get_node_sibling(cond_node)
+        t_then = infer_and_check(ctx, then_node)
+        
+        if then_node > 0 do
+            else_node = get_node_sibling(then_node)
+            if else_node > 0 do
+                infer_and_check(ctx, else_node)
+            end
+        end
+        inferred_type := t_then
+        set_node_type(node, inferred_type)
+        
+    else if kind == 11 do # Match
+        target_node = get_node_child(node)
+        infer_and_check(ctx, target_node)
+        
+        arm_node = get_node_sibling(target_node)
+        arm_t = 1
+        loop arm_node > 0 do
+            pat = get_node_child(arm_node)
+            body = get_node_sibling(pat)
+            arm_t := infer_and_check(ctx, body)
+            arm_node := get_node_sibling(arm_node)
+        end
+        inferred_type := arm_t
+        set_node_type(node, inferred_type)
+        
+    else if kind == 5 or kind == 24 do # Loop or For
+        cond_node = get_node_child(node)
+        infer_and_check(ctx, cond_node)
+        body_node = get_node_sibling(cond_node)
+        infer_and_check(ctx, body_node)
+        inferred_type := 1 # Void
+        set_node_type(node, inferred_type)
+        
+    else if kind == 15 do # Call
+        callee = get_node_child(node)
+        infer_and_check(ctx, callee)
+        
+        arg = get_node_sibling(callee)
+        loop arg > 0 do
+            infer_and_check(ctx, arg)
+            arg := get_node_sibling(arg)
+        end
+        inferred_type := 2 # Int / Dynamic
+        set_node_type(node, inferred_type)
+        
+    else if kind == 16 do # StructInit
+        field = get_node_child(node)
+        loop field > 0 do
+            infer_and_check(ctx, field)
+            field := get_node_sibling(field)
+        end
+        inferred_type := 6 # Struct
+        set_node_type(node, inferred_type)
+        
+    else if kind == 17 or kind == 27 do # MemberAccess or IndexAccess
+        obj = get_node_child(node)
+        infer_and_check(ctx, obj)
+        inferred_type := 0 # dynamic
+        set_node_type(node, inferred_type)
+        
+    else if kind == 19 do # Return
+        expr = get_node_child(node)
+        if expr > 0 do
+            inferred_type := infer_and_check(ctx, expr)
+        end
+        set_node_type(node, inferred_type)
+        
+    else do
+        child = get_node_child(node)
+        last_t = 1
+        loop child > 0 do
+            last_t := infer_and_check(ctx, child)
+            child := get_node_sibling(child)
+        end
+        inferred_type := last_t
+        set_node_type(node, inferred_type)
+    end
+    
+    inferred_type
+end
+
+def run_typechecker(root_node: Integer, filename: String): TypeContext do
+    ctx = init_typechecker(filename)
+    infer_and_check(ctx, root_node)
+    ctx
+end

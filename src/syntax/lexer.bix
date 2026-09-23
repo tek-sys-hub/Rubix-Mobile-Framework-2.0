@@ -1,0 +1,268 @@
+# Lexer for Rubix source
+
+# Token kinds:
+# 1: Keyword, 2: Identifier, 3: Integer, 4: Float, 5: String
+# 6: Operator, 7: Punctuation, 8: EOF, 9: Error
+
+type Token do
+    kind: Integer
+    text: String
+    line: Integer
+    column: Integer
+end
+
+type Lexer do
+    source: String
+    pos: Integer
+    line: Integer
+    column: Integer
+    len: Integer
+end
+
+def init_lexer(src: String): Lexer do
+    Lexer {
+        source: src,
+        pos: 0,
+        line: 1,
+        column: 1,
+        len: src.length()
+    }
+end
+
+def is_digit(b: Integer): Boolean do
+    b >= 48 and b <= 57
+end
+
+def is_alpha(b: Integer): Boolean do
+    (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or (b == 95)
+end
+
+def is_alphanumeric(b: Integer): Boolean do
+    is_alpha(b) == true or is_digit(b) == true
+end
+
+def peek(l: Lexer): Integer do
+    if l.pos >= l.len do
+        0
+    else do
+        l.source.byte_at(l.pos)
+    end
+end
+
+def advance(l: Lexer): Integer do
+    if l.pos >= l.len do
+        0
+    else do
+        b = l.source.byte_at(l.pos)
+        l.pos := l.pos + 1
+        if b == 10 do
+            l.line := l.line + 1
+            l.column := 1
+        else do
+            l.column := l.column + 1
+        end
+        b
+    end
+end
+
+def skip_whitespace(l: Lexer) do
+    done = false
+    loop done == false do
+        b = peek(l)
+        if b == 32 or b == 9 or b == 10 or b == 13 do
+            advance(l)
+        else if b == 35 do # '#' comment
+            loop l.pos < l.len and peek(l) != 10 do
+                advance(l)
+            end
+        else do
+            done := true
+        end
+    end
+end
+
+def is_keyword(text: String): Boolean do
+    if text == "fn" or text == "def" or text == "let" or text == "mut" or text == "type" or text == "enum" or text == "match" or text == "if" or text == "else" or text == "for" or text == "in" or text == "loop" or text == "use" or text == "return" or text == "true" or text == "false" or text == "do" or text == "end" or text == "print" or text == "fail" do
+        true
+    else do
+        false
+    end
+end
+
+def scan_identifier_or_keyword(l: Lexer, line: Integer, col: Integer): Token do
+    start_pos = l.pos
+    loop is_alphanumeric(peek(l)) do
+        advance(l)
+    end
+    
+    text = l.source.substring(start_pos, l.pos)
+    
+    if is_keyword(text) do
+        Token { kind: 1, text: text, line: line, column: col }
+    else if text == "and" or text == "or" or text == "not" do
+        Token { kind: 6, text: text, line: line, column: col }
+    else do
+        Token { kind: 2, text: text, line: line, column: col }
+    end
+end
+
+def scan_number(l: Lexer, line: Integer, col: Integer): Token do
+    start_pos = l.pos
+    loop is_digit(peek(l)) do
+        advance(l)
+    end
+    
+    b = peek(l)
+    if b == 46 and is_digit(l.source.byte_at(l.pos + 1)) == true do # '.' followed by digit (not '..')
+        advance(l)
+        loop is_digit(peek(l)) do
+            advance(l)
+        end
+        text = l.source.substring(start_pos, l.pos)
+        Token { kind: 4, text: text, line: line, column: col }
+    else do
+        text = l.source.substring(start_pos, l.pos)
+        Token { kind: 3, text: text, line: line, column: col }
+    end
+end
+
+def scan_string(l: Lexer, line: Integer, col: Integer): Token do
+    advance(l) # consume open quote
+    start_pos = l.pos
+    done = false
+    closed = false
+    
+    loop done == false do
+        b = peek(l)
+        if b == 0 do
+            done := true
+        else if b == 34 do # '"'
+            closed := true
+            done := true
+        else if b == 92 do # '\'
+            advance(l)
+            advance(l)
+        else do
+            advance(l)
+        end
+    end
+    
+    text = l.source.substring(start_pos, l.pos)
+    
+    if closed do
+        advance(l) # consume close quote
+        Token { kind: 5, text: text, line: line, column: col }
+    else do
+        Token { kind: 9, text: "Unterminated string", line: line, column: col }
+    end
+end
+
+def scan_operator_or_punctuation(l: Lexer, line: Integer, col: Integer): Token do
+    b = advance(l)
+    
+    if b == 61 do # '='
+        if peek(l) == 61 do # '=='
+            advance(l)
+            Token { kind: 6, text: "==", line: line, column: col }
+        else if peek(l) == 62 do # '=>'
+            advance(l)
+            Token { kind: 6, text: "=>", line: line, column: col }
+        else do
+            Token { kind: 6, text: "=", line: line, column: col }
+        end
+    else if b == 58 do # ':'
+        if peek(l) == 61 do # ':='
+            advance(l)
+            Token { kind: 6, text: ":=", line: line, column: col }
+        else do
+            Token { kind: 7, text: ":", line: line, column: col }
+        end
+    else if b == 33 do # '!'
+        if peek(l) == 61 do # '!='
+            advance(l)
+            Token { kind: 6, text: "!=", line: line, column: col }
+        else do
+            Token { kind: 6, text: "!", line: line, column: col }
+        end
+    else if b == 60 do # '<'
+        if peek(l) == 61 do # '<='
+            advance(l)
+            Token { kind: 6, text: "<=", line: line, column: col }
+        else do
+            Token { kind: 6, text: "<", line: line, column: col }
+        end
+    else if b == 62 do # '>'
+        if peek(l) == 61 do # '>='
+            advance(l)
+            Token { kind: 6, text: ">=", line: line, column: col }
+        else do
+            Token { kind: 6, text: ">", line: line, column: col }
+        end
+    else if b == 43 do
+        Token { kind: 6, text: "+", line: line, column: col }
+    else if b == 45 do # '-'
+        if peek(l) == 62 do # '->'
+            advance(l)
+            Token { kind: 6, text: "->", line: line, column: col }
+        else do
+            Token { kind: 6, text: "-", line: line, column: col }
+        end
+    else if b == 42 do # '*'
+        Token { kind: 6, text: "*", line: line, column: col }
+    else if b == 47 do # '/'
+        Token { kind: 6, text: "/", line: line, column: col }
+    else if b == 37 do # '%'
+        Token { kind: 6, text: "%", line: line, column: col }
+    else if b == 63 do # '?'
+        Token { kind: 6, text: "?", line: line, column: col }
+    else if b == 40 do # '('
+        Token { kind: 7, text: "(", line: line, column: col }
+    else if b == 41 do # ')'
+        Token { kind: 7, text: ")", line: line, column: col }
+    else if b == 123 do # '{'
+        Token { kind: 7, text: "{", line: line, column: col }
+    else if b == 125 do # '}'
+        Token { kind: 7, text: "}", line: line, column: col }
+    else if b == 91 do # '['
+        Token { kind: 7, text: "[", line: line, column: col }
+    else if b == 93 do # ']'
+        Token { kind: 7, text: "]", line: line, column: col }
+    else if b == 44 do # ','
+        Token { kind: 7, text: ",", line: line, column: col }
+    else if b == 46 do # '.'
+        if peek(l) == 46 do # '..'
+            advance(l)
+            Token { kind: 6, text: "..", line: line, column: col }
+        else do
+            Token { kind: 7, text: ".", line: line, column: col }
+        end
+    else if b == 59 do # ';'
+        Token { kind: 7, text: ";", line: line, column: col }
+    else if b == 95 do # '_'
+        Token { kind: 2, text: "_", line: line, column: col }
+    else do
+        Token { kind: 9, text: "Unexpected character", line: line, column: col }
+    end
+end
+
+def next_token(l: Lexer): Token do
+    skip_whitespace(l)
+    
+    start_line = l.line
+    start_col = l.column
+    
+    if l.pos >= l.len do
+        Token { kind: 8, text: "", line: start_line, column: start_col }
+    else do
+        b = peek(l)
+        if is_alpha(b) do
+            scan_identifier_or_keyword(l, start_line, start_col)
+        else if is_digit(b) do
+            scan_number(l, start_line, start_col)
+        else if b == 34 do
+            scan_string(l, start_line, start_col)
+        else do
+            scan_operator_or_punctuation(l, start_line, start_col)
+        end
+    end
+end

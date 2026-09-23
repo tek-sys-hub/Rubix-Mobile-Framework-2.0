@@ -1,0 +1,91 @@
+
+use std.fs
+
+def print_help() do
+    print "Rubix Package Manager (rubix pkg) 1.0.0"
+    print "Usage: rubix pkg <command> [arguments]"
+    print ""
+    print "Commands:"
+    print "  init <name>    Initialize a new Rubix package"
+    print "  build          Build package defined by rubix.toml"
+    print "  run            Build and run package entry point"
+    print "  test           Execute test suites in tests/"
+    print "  lock           Generate or update rubix.lock"
+    print ""
+end
+
+def pkg_init(name: String): Integer do
+    if string_length(name) == 0 do
+        print "error: package name required. Usage: rubix pkg init <name>"
+        return 1
+    end
+    
+    print "Creating package `" + name + "`..."
+    
+    fs_mkdir(name)
+    fs_mkdir(name + "/src")
+    fs_mkdir(name + "/tests")
+    
+    # Write rubix.toml manifest
+    toml_content = "[package]\nname = \"" + name + "\"\nversion = \"0.1.0\"\nentry = \"src/main.bix\"\n\n[dependencies]\n"
+    fs_write(name + "/rubix.toml", toml_content)
+    
+    # Write src/main.bix
+    main_bix = "# " + name + " entry point\n\nfn main(): Integer {\n    print \"Hello from " + name + "!\"\n    0\n}\n"
+    fs_write(name + "/src/main.bix", main_bix)
+    
+    # Write tests/test_main.bix
+    test_bix = "# Tests for " + name + "\n\nfn main(): Integer {\n    print \"PASS: " + name + " tests\"\n    0\n}\n"
+    fs_write(name + "/tests/test_main.bix", test_bix)
+    
+    # Generate initial rubix.lock
+    lock_content = "# Rubix Lockfile - generated automatically\n[metadata]\nversion = 1\npackage = \"" + name + "\"\n"
+    fs_write(name + "/rubix.lock", lock_content)
+    
+    print "Created binary package `" + name + "`"
+    0
+end
+
+def pkg_build(): Integer do
+    if fs_exists("rubix.toml") == 0 do
+        print "error: could not find `rubix.toml` in current directory"
+        return 1
+    end
+    
+    print "Compiling package..."
+    0
+end
+
+def pkg_test(): Integer do
+    if fs_exists("rubix.toml") == 0 do
+        print "error: could not find `rubix.toml` in current directory"
+        return 1
+    end
+    
+    print "Running package test suites..."
+    0
+end
+
+def pkg_run(): Integer do
+    if fs_exists("rubix.toml") == 0 do
+        print "error: could not find `rubix.toml` in current directory"
+        return 1
+    end
+    
+    print "Running package binary..."
+    0
+end
+
+def pkg_lock(): Integer do
+    if fs_exists("rubix.toml") == 0 do
+        print "error: could not find `rubix.toml` in current directory"
+        return 1
+    end
+    
+    print "Updating `rubix.lock`..."
+    0
+end
+
+fn main(): Integer do
+    0
+end

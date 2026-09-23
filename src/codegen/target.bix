@@ -1,0 +1,219 @@
+# Encapsulates CPU architecture, operating system, ABI, object format, and toolchain configurations
+
+type Target do
+    triple: String
+    arch: String
+    os: String
+    abi: String
+    object_format: String
+    pointer_width: Integer
+    endianness: String
+    symbol_prefix: String
+    is_supported: Boolean
+    unsupported_reason: String
+end
+
+def parse_target_triple(triple_str: String): Target do
+    mut t_str = triple_str
+    if t_str == "" or t_str == "host" or t_str == "default" do
+        t_str := "x86_64-unknown-linux-gnu"
+    end
+    
+    # 1. x86_64 Linux (Host default) - Any Linux distribution (Ubuntu, Debian, Fedora, Arch, Alpine, etc.)
+    if t_str == "linux-x64" or t_str == "linux-amd64" or t_str == "linux64" or t_str == "x86_64-linux" or t_str == "x86_64-unknown-linux-gnu" or t_str == "x86_64-linux-gnu" do
+        return Target {
+            triple: "x86_64-unknown-linux-gnu",
+            arch: "x86_64",
+            os: "linux",
+            abi: "sysv",
+            object_format: "elf",
+            pointer_width: 64,
+            endianness: "little",
+            symbol_prefix: "",
+            is_supported: true,
+            unsupported_reason: ""
+        }
+    end
+    
+    # 2. AArch64 / ARM64 Linux & Android (Raspberry Pi, Cloud servers, Mobile)
+    if t_str == "linux-arm64" or t_str == "linux-aarch64" or t_str == "arm64" or t_str == "aarch64" or t_str == "aarch64-linux" or t_str == "aarch64-unknown-linux-gnu" or t_str == "aarch64-linux-gnu" or t_str == "arm64-linux" do
+        return Target {
+            triple: "aarch64-unknown-linux-gnu",
+            arch: "aarch64",
+            os: "linux",
+            abi: "aapcs64",
+            object_format: "elf",
+            pointer_width: 64,
+            endianness: "little",
+            symbol_prefix: "",
+            is_supported: true,
+            unsupported_reason: ""
+        }
+    end
+    
+    # 3. AArch64 Apple Silicon macOS (Mach-O) - M1, M2, M3, M4
+    if t_str == "macos-arm64" or t_str == "macos" or t_str == "macos-m1" or t_str == "macos-m2" or t_str == "macos-m3" or t_str == "aarch64-macos" or t_str == "aarch64-apple-darwin" or t_str == "arm64-macos" or t_str == "apple-silicon" do
+        return Target {
+            triple: "aarch64-apple-darwin",
+            arch: "aarch64",
+            os: "macos",
+            abi: "darwin_arm64",
+            object_format: "macho",
+            pointer_width: 64,
+            endianness: "little",
+            symbol_prefix: "_",
+            is_supported: true,
+            unsupported_reason: ""
+        }
+    end
+    
+    # 4. x86_64 Apple macOS (Mach-O) - Intel Mac
+    if t_str == "macos-x64" or t_str == "macos-intel" or t_str == "x86_64-macos" or t_str == "x86_64-apple-darwin" do
+        return Target {
+            triple: "x86_64-apple-darwin",
+            arch: "x86_64",
+            os: "macos",
+            abi: "sysv",
+            object_format: "macho",
+            pointer_width: 64,
+            endianness: "little",
+            symbol_prefix: "_",
+            is_supported: true,
+            unsupported_reason: ""
+        }
+    end
+    
+    # 5. x86_64 Windows (PE/COFF) - Windows 10, 11, Server
+    if t_str == "windows-x64" or t_str == "windows" or t_str == "win64" or t_str == "x86_64-windows" or t_str == "x86_64-pc-windows-msvc" or t_str == "x86_64-w64-mingw32" do
+        return Target {
+            triple: "x86_64-w64-mingw32",
+            arch: "x86_64",
+            os: "windows",
+            abi: "win64",
+            object_format: "coff",
+            pointer_width: 64,
+            endianness: "little",
+            symbol_prefix: "",
+            is_supported: true,
+            unsupported_reason: ""
+        }
+    end
+    
+    # 6. WebAssembly (wasm32) - Web Browsers, Cloudflare Workers, Node.js, Vercel
+    if t_str == "wasm" or t_str == "web" or t_str == "browser" or t_str == "vercel" or t_str == "wasm32" or t_str == "wasm32-wasi" or t_str == "wasm32-unknown-unknown" do
+        return Target {
+            triple: "wasm32-unknown-unknown",
+            arch: "wasm32",
+            os: "wasi",
+            abi: "wasm",
+            object_format: "wasm",
+            pointer_width: 32,
+            endianness: "little",
+            symbol_prefix: "",
+            is_supported: true,
+            unsupported_reason: ""
+        }
+    end
+    
+    # 7. RISC-V 64-bit Linux (ELF)
+    if t_str == "linux-riscv64" or t_str == "riscv64" or t_str == "riscv64-linux" or t_str == "riscv64-unknown-linux-gnu" do
+        return Target {
+            triple: "riscv64-unknown-linux-gnu",
+            arch: "riscv64",
+            os: "linux",
+            abi: "lp64d",
+            object_format: "elf",
+            pointer_width: 64,
+            endianness: "little",
+            symbol_prefix: "",
+            is_supported: true,
+            unsupported_reason: ""
+        }
+    end
+    
+    # 8. 32-bit x86 Linux (i686 / IA-32) - Legacy PCs, 32-bit distros
+    if t_str == "linux-x86" or t_str == "linux-32" or t_str == "x86-32" or t_str == "i686-linux" or t_str == "i686-unknown-linux-gnu" or t_str == "x86_32" or t_str == "i386" do
+        return Target {
+            triple: "i686-unknown-linux-gnu",
+            arch: "x86_32",
+            os: "linux",
+            abi: "sysv_32",
+            object_format: "elf",
+            pointer_width: 32,
+            endianness: "little",
+            symbol_prefix: "",
+            is_supported: true,
+            unsupported_reason: ""
+        }
+    end
+    
+    # 9. 32-bit ARM Linux (ARMv7 / Cortex-A / Raspberry Pi 1/2)
+    if t_str == "linux-arm32" or t_str == "arm32" or t_str == "raspberry-pi" or t_str == "arm-linux" or t_str == "arm-unknown-linux-gnueabi" or t_str == "armv7-linux" do
+        return Target {
+            triple: "arm-unknown-linux-gnueabi",
+            arch: "arm32",
+            os: "linux",
+            abi: "eabi5",
+            object_format: "elf",
+            pointer_width: 32,
+            endianness: "little",
+            symbol_prefix: "",
+            is_supported: true,
+            unsupported_reason: ""
+        }
+    end
+    
+    # 10. 32-bit RISC-V (Microcontrollers / ESP32-C3)
+    if t_str == "linux-riscv32" or t_str == "riscv32" or t_str == "riscv32-linux" or t_str == "riscv32-unknown-linux-gnu" do
+        return Target {
+            triple: "riscv32-unknown-linux-gnu",
+            arch: "riscv32",
+            os: "linux",
+            abi: "ilp32d",
+            object_format: "elf",
+            pointer_width: 32,
+            endianness: "little",
+            symbol_prefix: "",
+            is_supported: true,
+            unsupported_reason: ""
+        }
+    end
+    
+    # Unsupported / Unknown target
+    Target {
+        triple: t_str,
+        arch: "unknown",
+        os: "unknown",
+        abi: "unknown",
+        object_format: "unknown",
+        pointer_width: 0,
+        endianness: "unknown",
+        symbol_prefix: "",
+        is_supported: false,
+        unsupported_reason: "Target triple '" + t_str + "' is not supported by this compiler version."
+    }
+end
+
+def is_target_supported(t: Target): Boolean do
+    t.is_supported
+end
+
+def get_target_triple(t: Target): String do
+    t.triple
+end
+
+def get_target_arch(t: Target): String do
+    t.arch
+end
+
+def get_target_os(t: Target): String do
+    t.os
+end
+
+def get_target_object_format(t: Target): String do
+    t.object_format
+end
+
+def get_target_symbol_prefix(t: Target): String do
+    t.symbol_prefix
+end

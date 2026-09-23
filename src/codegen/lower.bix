@@ -1,0 +1,490 @@
+
+use src.syntax.ast
+use src.codegen.x86_64
+
+type CodegenContext do
+    emitter: X86Emitter
+    current_func: String
+    stack_offset: Integer
+    max_stack_offset: Integer
+    var_table: String
+    loop_start_label: String
+    loop_end_label: String
+    filename: String
+end
+
+def init_codegen(filename: String): CodegenContext do
+    e = init_x86_emitter()
+    CodegenContext {
+        emitter: e,
+        current_func: "",
+        stack_offset: 8,
+        max_stack_offset: 16,
+        var_table: "",
+        loop_start_label: "",
+        loop_end_label: "",
+        filename: filename
+    }
+end
+
+def emit(ctx: CodegenContext, line: String) do
+    emit_asm(ctx.emitter, line)
+end
+
+def new_label_str(ctx: CodegenContext): String do
+    new_asm_label(ctx.emitter)
+end
+
+def add_str_lit(ctx: CodegenContext, s: String): String do
+    add_string_constant(ctx.emitter, s)
+end
+
+
+def add_var_slot(ctx: CodegenContext, name: String): Integer do
+    target = ";" + name + ":"
+    t_len = string_length(target)
+    tbl_len = string_length(ctx.var_table)
+    mut i = 0
+    mut found = 0
+    mut found_pos = 0
+    loop i <= tbl_len - t_len and found == 0 do
+        sub = substring(ctx.var_table, i, i + t_len)
+        if sub == target do
+            found := 1
+            found_pos := i + t_len
+        end
+        i := i + 1
+    end
+    
+    if found == 1 do
+        mut end_pos = found_pos
+        mut done = 0
+        loop end_pos < tbl_len and done == 0 do
+            c = char_at(ctx.var_table, end_pos)
+            if c == ";" do
+                done := 1
+            else do
+                end_pos := end_pos + 1
+            end
+        end
+        num_str = substring(ctx.var_table, found_pos, end_pos)
+        string_to_int(num_str)
+    else do
+        slot = ctx.stack_offset
+        ctx.stack_offset := ctx.stack_offset + 8
+        if slot > ctx.max_stack_offset do
+            ctx.max_stack_offset := slot
+        end
+        ctx.var_table := ctx.var_table + ";" + name + ":" + int_to_string(slot) + ";"
+        slot
+    end
+end
+
+def get_var_slot(ctx: CodegenContext, name: String): Integer do
+    target = ";" + name + ":"
+    t_len = string_length(target)
+    tbl_len = string_length(ctx.var_table)
+    mut i = 0
+    mut found = 0
+    mut found_pos = 0
+    loop i <= tbl_len - t_len and found == 0 do
+        sub = substring(ctx.var_table, i, i + t_len)
+        if sub == target do
+            found := 1
+            found_pos := i + t_len
+        end
+        i := i + 1
+    end
+    
+    if found == 1 do
+        mut end_pos = found_pos
+        mut done = 0
+        loop end_pos < tbl_len and done == 0 do
+            c = char_at(ctx.var_table, end_pos)
+            if c == ";" do
+                done := 1
+            else do
+                end_pos := end_pos + 1
+            end
+        end
+        num_str = substring(ctx.var_table, found_pos, end_pos)
+        string_to_int(num_str)
+    else do
+        16
+    end
+end
+
+
+def gen_node(ctx: CodegenContext, node: Integer) do
+    if node <= 0 do
+        return 0
+    end
+    
+    kind = get_node_kind(node)
+    text = get_node_text(node)
+    
+    if kind == 9 do # Literal
+        type_id = get_node_type(node)
+        if type_id == 5 do # String
+            lbl = add_str_lit(ctx, text)
+            emit(ctx, "    leaq " + lbl + "(%rip), %rax")
+        else if type_id == 4 do # Bool
+            if text == "true" do
+                emit(ctx, "    movq $1, %rax")
+            else do
+                emit(ctx, "    movq $0, %rax")
+            end
+        else do # Integer / Float
+            emit(ctx, "    movq $" + text + ", %rax")
+        end
+        
+    else if kind == 8 do # Identifier
+        slot = get_var_slot(ctx, text)
+        emit(ctx, "    # load ident " + text)
+        emit(ctx, "    movq -" + int_to_string(slot) + "(%rbp), %rax")
+        
+    else if kind == 7 do # BinaryExpr
+        left = get_node_child(node)
+        right = get_node_sibling(left)
+        
+        rk = get_node_kind(right)
+        rt = get_node_text(right)
+        t_left = get_node_type(left)
+        t_right = get_node_type(right)
+        
+        # Fast-Path: Immediate Arithmetic Optimization
+        if rk == 9 and (text == "-" or text == "+" or text == "<=" or text == "<" or text == ">" or text == ">=" or text == "==" or text == "!=") do
+            gen_node(ctx, left)
+            if text == "-" do
+                emit(ctx, "    subq $" + rt + ", %rax")
+            else if text == "+" do
+                if t_left == 5 or t_right == 5 do
+                    emit(ctx, "    pushq %rax")
+                    gen_node(ctx, right)
+                    emit(ctx, "    movq %rax, %rsi")
+                    emit(ctx, "    popq %rdi")
+                    emit(ctx, "    call rubix_rt_str_concat")
+                else do
+                    emit(ctx, "    addq $" + rt + ", %rax")
+                end
+            else if text == "<=" do
+                emit(ctx, "    cmpq $" + rt + ", %rax")
+                emit(ctx, "    setle %al")
+                emit(ctx, "    movzbq %al, %rax")
+            else if text == "<" do
+                emit(ctx, "    cmpq $" + rt + ", %rax")
+                emit(ctx, "    setl %al")
+                emit(ctx, "    movzbq %al, %rax")
+            else if text == ">" do
+                emit(ctx, "    cmpq $" + rt + ", %rax")
+                emit(ctx, "    setg %al")
+                emit(ctx, "    movzbq %al, %rax")
+            else if text == ">=" do
+                emit(ctx, "    cmpq $" + rt + ", %rax")
+                emit(ctx, "    setge %al")
+                emit(ctx, "    movzbq %al, %rax")
+            else if text == "==" do
+                emit(ctx, "    cmpq $" + rt + ", %rax")
+                emit(ctx, "    sete %al")
+                emit(ctx, "    movzbq %al, %rax")
+            else if text == "!=" do
+                emit(ctx, "    cmpq $" + rt + ", %rax")
+                emit(ctx, "    setne %al")
+                emit(ctx, "    movzbq %al, %rax")
+            end
+        else do
+            gen_node(ctx, left)
+            emit(ctx, "    pushq %rax")
+            gen_node(ctx, right)
+            emit(ctx, "    movq %rax, %rbx")
+            emit(ctx, "    popq %rax")
+            
+            if text == "+" do
+                if t_left == 5 or t_right == 5 do
+                    emit(ctx, "    movq %rax, %rdi")
+                    emit(ctx, "    movq %rbx, %rsi")
+                    emit(ctx, "    call rubix_rt_str_concat")
+                else do
+                    emit(ctx, "    addq %rbx, %rax")
+                end
+            else if text == "-" do
+                emit(ctx, "    subq %rbx, %rax")
+            else if text == "*" do
+                emit(ctx, "    imulq %rbx, %rax")
+            else if text == "/" do
+                emit(ctx, "    cqto")
+                emit(ctx, "    idivq %rbx")
+            else if text == "%" do
+                emit(ctx, "    cqto")
+                emit(ctx, "    idivq %rbx")
+                emit(ctx, "    movq %rdx, %rax")
+            else if text == "==" do
+                if t_left == 5 or t_right == 5 do
+                    emit(ctx, "    movq %rax, %rdi")
+                    emit(ctx, "    movq %rbx, %rsi")
+                    emit(ctx, "    call rubix_rt_str_eq")
+                else do
+                    emit(ctx, "    cmpq %rbx, %rax")
+                    emit(ctx, "    sete %al")
+                    emit(ctx, "    movzbq %al, %rax")
+                end
+            else if text == "!=" do
+                if t_left == 5 or t_right == 5 do
+                    emit(ctx, "    movq %rax, %rdi")
+                    emit(ctx, "    movq %rbx, %rsi")
+                    emit(ctx, "    call rubix_rt_str_eq")
+                    emit(ctx, "    xorq $1, %rax")
+                else do
+                    emit(ctx, "    cmpq %rbx, %rax")
+                    emit(ctx, "    setne %al")
+                    emit(ctx, "    movzbq %al, %rax")
+                end
+            else if text == "<" do
+                emit(ctx, "    cmpq %rbx, %rax")
+                emit(ctx, "    setl %al")
+                emit(ctx, "    movzbq %al, %rax")
+            else if text == "<=" do
+                emit(ctx, "    cmpq %rbx, %rax")
+                emit(ctx, "    setle %al")
+                emit(ctx, "    movzbq %al, %rax")
+            else if text == ">" do
+                emit(ctx, "    cmpq %rbx, %rax")
+                emit(ctx, "    setg %al")
+                emit(ctx, "    movzbq %al, %rax")
+            else if text == ">=" do
+                emit(ctx, "    cmpq %rbx, %rax")
+                emit(ctx, "    setge %al")
+                emit(ctx, "    movzbq %al, %rax")
+            else if text == "and" do
+                emit(ctx, "    andq %rbx, %rax")
+            else if text == "or" do
+                emit(ctx, "    orq %rbx, %rax")
+            end
+        end
+        
+    else if kind == 4 do # If
+        cond = get_node_child(node)
+        then_b = get_node_sibling(cond)
+        else_b = get_node_sibling(then_b)
+        
+        else_lbl = new_label_str(ctx)
+        end_lbl = new_label_str(ctx)
+        
+        gen_node(ctx, cond)
+        emit(ctx, "    cmpq $0, %rax")
+        emit(ctx, "    je " + else_lbl)
+        
+        gen_node(ctx, then_b)
+        emit(ctx, "    jmp " + end_lbl)
+        
+        emit(ctx, else_lbl + ":")
+        if else_b > 0 do
+            gen_node(ctx, else_b)
+        end
+        
+        emit(ctx, end_lbl + ":")
+        
+    else if kind == 20 or kind == 21 do # Let or Mut
+        var_id = get_node_child(node)
+        var_name = get_node_text(var_id)
+        init_val = get_node_sibling(var_id)
+        slot = add_var_slot(ctx, var_name)
+        if init_val > 0 do
+            gen_node(ctx, init_val)
+            emit(ctx, "    movq %rax, -" + int_to_string(slot) + "(%rbp)")
+        end
+        
+    else if kind == 6 do # Assign
+        target = get_node_child(node)
+        target_name = get_node_text(target)
+        val = get_node_sibling(target)
+        slot = get_var_slot(ctx, target_name)
+        if val > 0 do
+            gen_node(ctx, val)
+            emit(ctx, "    movq %rax, -" + int_to_string(slot) + "(%rbp)")
+        end
+        
+    else if kind == 30 do # Print
+        expr = get_node_child(node)
+        if expr > 0 do
+            gen_node(ctx, expr)
+            type_id = get_node_type(expr)
+            emit(ctx, "    movq %rax, %rdi")
+            if type_id == 5 do
+                emit(ctx, "    call rubix_rt_print_str")
+            else if type_id == 2 do
+                emit(ctx, "    call rubix_rt_print_int")
+            else do
+                emit(ctx, "    call rubix_rt_print_poly")
+            end
+        end
+        
+    else if kind == 31 do # Fail
+        expr = get_node_child(node)
+        if expr > 0 do
+            gen_node(ctx, expr)
+            emit(ctx, "    movq %rax, %rdi")
+            emit(ctx, "    call rubix_rt_panic")
+        end
+        
+    else if kind == 10 do # UnaryExpr
+        operand = get_node_child(node)
+        gen_node(ctx, operand)
+        if text == "-" do
+            emit(ctx, "    negq %rax")
+        else if text == "not" or text == "!" do
+            emit(ctx, "    cmpq $0, %rax")
+            emit(ctx, "    sete %al")
+            emit(ctx, "    movzbq %al, %rax")
+        end
+        
+    else if kind == 5 do # Loop
+        cond = get_node_child(node)
+        body = get_node_sibling(cond)
+        
+        loop_start = new_label_str(ctx)
+        loop_end = new_label_str(ctx)
+        
+        emit(ctx, loop_start + ":")
+        gen_node(ctx, cond)
+        emit(ctx, "    cmpq $0, %rax")
+        emit(ctx, "    je " + loop_end)
+        
+        gen_node(ctx, body)
+        emit(ctx, "    jmp " + loop_start)
+        emit(ctx, loop_end + ":")
+        
+    else if kind == 19 do # Return
+        expr = get_node_child(node)
+        if expr > 0 do
+            gen_node(ctx, expr)
+        end
+        emit(ctx, "    movq %rbp, %rsp")
+        emit(ctx, "    popq %rbp")
+        emit(ctx, "    ret")
+        
+    else if kind == 15 do # Call
+        callee = get_node_child(node)
+        mut callee_name = get_node_text(callee)
+        if callee_name == "main" do
+            callee_name := "rubix_main"
+        end
+        
+        if callee_name == "int_to_string" or callee_name == "text" do
+            arg = get_node_sibling(callee)
+            if arg > 0 do
+                gen_node(ctx, arg)
+                emit(ctx, "    movq %rax, %rdi")
+                emit(ctx, "    call rubix_rt_int_to_str")
+            end
+        else do
+            # Safely evaluate arguments onto stack to prevent register clobbering
+            arg = get_node_sibling(callee)
+            mut num_args = 0
+            loop arg > 0 do
+                gen_node(ctx, arg)
+                emit(ctx, "    pushq %rax")
+                num_args := num_args + 1
+                arg := get_node_sibling(arg)
+            end
+            
+            if num_args == 1 do
+                emit(ctx, "    popq %rdi")
+            else if num_args == 2 do
+                emit(ctx, "    popq %rsi")
+                emit(ctx, "    popq %rdi")
+            else if num_args == 3 do
+                emit(ctx, "    popq %rdx")
+                emit(ctx, "    popq %rsi")
+                emit(ctx, "    popq %rdi")
+            else if num_args == 4 do
+                emit(ctx, "    popq %rcx")
+                emit(ctx, "    popq %rdx")
+                emit(ctx, "    popq %rsi")
+                emit(ctx, "    popq %rdi")
+            end
+            
+            emit(ctx, "    call " + callee_name)
+        end
+        
+    else if kind == 3 do # Block
+        child = get_node_child(node)
+        loop child > 0 do
+            gen_node(ctx, child)
+            child := get_node_sibling(child)
+        end
+        
+    else if kind == 2 do # Function Definition
+        mut func_name = text
+        if func_name == "main" do
+            func_name := "rubix_main"
+        end
+        
+        ctx.current_func := func_name
+        ctx.var_table := ""
+        ctx.stack_offset := 8
+        ctx.max_stack_offset := 16
+        
+        emit(ctx, "")
+        emit(ctx, ".section .text." + func_name + ", \"ax\", @progbits")
+        emit(ctx, ".globl " + func_name)
+        emit(ctx, ".type " + func_name + ", @function")
+        emit(ctx, func_name + ":")
+        emit(ctx, "    pushq %rbp")
+        emit(ctx, "    movq %rsp, %rbp")
+        emit(ctx, "    subq $256, %rsp")
+        
+        # Save function parameters into stack slots
+        param = get_node_child(node)
+        mut param_idx = 0
+        loop param > 0 do
+            if get_node_kind(param) == 13 do # Parameter
+                pname = get_node_text(param)
+                slot = add_var_slot(ctx, pname)
+                if param_idx == 0 do
+                    emit(ctx, "    movq %rdi, -" + int_to_string(slot) + "(%rbp)")
+                else if param_idx == 1 do
+                    emit(ctx, "    movq %rsi, -" + int_to_string(slot) + "(%rbp)")
+                else if param_idx == 2 do
+                    emit(ctx, "    movq %rdx, -" + int_to_string(slot) + "(%rbp)")
+                else if param_idx == 3 do
+                    emit(ctx, "    movq %rcx, -" + int_to_string(slot) + "(%rbp)")
+                end
+                param_idx := param_idx + 1
+            end
+            param := get_node_sibling(param)
+        end
+        
+        # Function body
+        child = get_node_child(node)
+        loop child > 0 do
+            if get_node_kind(child) == 3 do # Body Block
+                gen_node(ctx, child)
+            end
+            child := get_node_sibling(child)
+        end
+        
+        emit(ctx, "    movq %rbp, %rsp")
+        emit(ctx, "    popq %rbp")
+        emit(ctx, "    ret")
+        
+    else if kind == 1 do # Program
+        emit(ctx, ".text")
+        child = get_node_child(node)
+        loop child > 0 do
+            gen_node(ctx, child)
+            child := get_node_sibling(child)
+        end
+        
+        # Emit Read-Only Data Section (string literals)
+        emit(ctx, "")
+        emit(ctx, ".section .rodata")
+        emit(ctx, ctx.emitter.string_table)
+    end
+end
+
+def compile_ast_to_x86(root: Integer, filename: String): String do
+    ctx = init_codegen(filename)
+    gen_node(ctx, root)
+    ctx.emitter.output
+end

@@ -1,0 +1,84 @@
+
+type RiscvEmitter {
+    output: String,
+    label_id: Integer
+}
+
+def init_riscv_emitter(): RiscvEmitter do
+    RiscvEmitter {
+        output: "",
+        label_id: 1
+    }
+end
+
+def emit_rv(e: RiscvEmitter, line: String) do
+    e.output := e.output + line + "\n"
+end
+
+def new_rv_label(e: RiscvEmitter): String do
+    lbl = ".L_rv_" + int_to_string(e.label_id)
+    e.label_id := e.label_id + 1
+    lbl
+end
+
+def emit_rv_prologue(e: RiscvEmitter, fname: String, frame_size: Integer) do
+    emit_rv(e, ".section .text." + fname + ", \"ax\", @progbits")
+    emit_rv(e, ".globl " + fname)
+    emit_rv(e, ".type " + fname + ", @function")
+    emit_rv(e, fname + ":")
+    emit_rv(e, "    addi sp, sp, -" + int_to_string(frame_size))
+    emit_rv(e, "    sd ra, " + int_to_string(frame_size - 8) + "(sp)")
+    emit_rv(e, "    sd s0, " + int_to_string(frame_size - 16) + "(sp)")
+    emit_rv(e, "    addi s0, sp, " + int_to_string(frame_size))
+end
+
+def emit_rv_epilogue(e: RiscvEmitter, frame_size: Integer) do
+    emit_rv(e, "    ld ra, " + int_to_string(frame_size - 8) + "(sp)")
+    emit_rv(e, "    ld s0, " + int_to_string(frame_size - 16) + "(sp)")
+    emit_rv(e, "    addi sp, sp, " + int_to_string(frame_size))
+    emit_rv(e, "    ret")
+end
+
+def emit_rv_add(e: RiscvEmitter, dest: String, s1: String, s2: String) do
+    emit_rv(e, "    add " + dest + ", " + s1 + ", " + s2)
+end
+
+def emit_rv_sub(e: RiscvEmitter, dest: String, s1: String, s2: String) do
+    emit_rv(e, "    sub " + dest + ", " + s1 + ", " + s2)
+end
+
+def emit_rv_mul(e: RiscvEmitter, dest: String, s1: String, s2: String) do
+    emit_rv(e, "    mul " + dest + ", " + s1 + ", " + s2)
+end
+
+def emit_rv_div(e: RiscvEmitter, dest: String, s1: String, s2: String) do
+    emit_rv(e, "    div " + dest + ", " + s1 + ", " + s2)
+end
+
+def emit_rv_li(e: RiscvEmitter, dest: String, imm: Integer) do
+    emit_rv(e, "    li " + dest + ", " + int_to_string(imm))
+end
+
+def emit_rv_mv(e: RiscvEmitter, dest: String, src: String) do
+    emit_rv(e, "    mv " + dest + ", " + src)
+end
+
+def emit_rv_j(e: RiscvEmitter, label: String) do
+    emit_rv(e, "    j " + label)
+end
+
+def emit_rv_beqz(e: RiscvEmitter, reg: String, label: String) do
+    emit_rv(e, "    beqz " + reg + ", " + label)
+end
+
+def emit_rv_bnez(e: RiscvEmitter, reg: String, label: String) do
+    emit_rv(e, "    bnez " + reg + ", " + label)
+end
+
+def emit_rv_call(e: RiscvEmitter, func_name: String) do
+    emit_rv(e, "    call " + func_name)
+end
+
+def get_riscv_output(e: RiscvEmitter): String do
+    e.output
+end

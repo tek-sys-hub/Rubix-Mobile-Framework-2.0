@@ -1,0 +1,86 @@
+# Core arithmetic, numerical algorithms, and bounds validation
+
+def abs_int(x: Integer): Integer do
+    if x < 0 do
+        -x
+    else do
+        x
+    end
+end
+
+def min_int(a: Integer, b: Integer): Integer do
+    if a < b do
+        a
+    else do
+        b
+    end
+end
+
+def max_int(a: Integer, b: Integer): Integer do
+    if a > b do
+        a
+    else do
+        b
+    end
+end
+
+def clamp_int(val: Integer, low: Integer, high: Integer): Integer do
+    if val < low do
+        low
+    else if val > high do
+        high
+    else do
+        val
+    end
+end
+
+def sign_int(x: Integer): Integer do
+    if x > 0 do
+        1
+    else if x < 0 do
+        -1
+    else do
+        0
+    end
+end
+
+def is_even(n: Integer): Boolean do
+    (n % 2) == 0
+end
+
+def is_odd(n: Integer): Boolean do
+    (n % 2) != 0
+end
+
+def gcd_int(a: Integer, b: Integer): Integer do
+    x = abs_int(a)
+    y = abs_int(b)
+    loop y != 0 do
+        temp = y
+        y := x % y
+        x := temp
+    end
+    x
+end
+
+def lcm_int(a: Integer, b: Integer): Integer do
+    if a == 0 or b == 0 do
+        0
+    else do
+        abs_int(a * b) / gcd_int(a, b)
+    end
+end
+
+def pow_int(base: Integer, exp: Integer): Integer do
+    if exp < 0 do
+        0
+    else do
+        res = 1
+        i = 0
+        loop i < exp do
+            res := res * base
+            i := i + 1
+        end
+        res
+    end
+end

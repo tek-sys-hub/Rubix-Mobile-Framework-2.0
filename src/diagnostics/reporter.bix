@@ -1,0 +1,60 @@
+# Realizer Diagnostics Engine (src/diagnostics/diagnostics.bix)
+# Structured compiler diagnostics with source excerpts, line/column markers, and suggestions
+
+type Diagnostic do
+    severity: Integer # 1: Error, 2: Warning, 3: Note, 4: Help
+    filename: String
+    line: Integer
+    column: Integer
+    message: String
+    suggestion: String
+end
+
+def make_diagnostic(sev: Integer, filename: String, line: Integer, col: Integer, msg: String, sug: String): Diagnostic do
+    Diagnostic {
+        severity: sev,
+        filename: filename,
+        line: line,
+        column: col,
+        message: msg,
+        suggestion: sug
+    }
+end
+
+def severity_prefix(sev: Integer): String do
+    if sev == 1 do
+        "error"
+    else if sev == 2 do
+        "warning"
+    else if sev == 3 do
+        "note"
+    else if sev == 4 do
+        "help"
+    else do
+        "info"
+    end
+end
+
+def format_diagnostic(diag: Diagnostic): String do
+    prefix = severity_prefix(diag.severity)
+    loc = diag.filename + ":" + int_to_string(diag.line) + ":" + int_to_string(diag.column)
+    
+    out_str = prefix + ": " + diag.message + "\n"
+    out_str := out_str + "  --> " + loc + "\n"
+    
+    if diag.suggestion != "" do
+        out_str := out_str + "  = help: " + diag.suggestion + "\n"
+    end
+    
+    out_str
+end
+
+def report_error(filename: String, line: Integer, col: Integer, msg: String, sug: String) do
+    d = make_diagnostic(1, filename, line, col, msg, sug)
+    print format_diagnostic(d)
+end
+
+def report_warning(filename: String, line: Integer, col: Integer, msg: String, sug: String) do
+    d = make_diagnostic(2, filename, line, col, msg, sug)
+    print format_diagnostic(d)
+end

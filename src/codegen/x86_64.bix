@@ -1,0 +1,113 @@
+# Emits System V AMD64 ABI (Linux/macOS) and Windows x64 ABI assembly
+
+use src.codegen.target
+
+type X86Emitter do
+    output: String
+    string_table: String
+    string_count: Integer
+    label_count: Integer
+    symbol_prefix: String
+    is_windows: Boolean
+    is_darwin: Boolean
+    shadow_space: Integer
+end
+
+def init_x86_emitter_for_target(t: Target): X86Emitter do
+    mut prefix = ""
+    mut is_win = false
+    mut is_mac = false
+    mut shadow = 0
+    
+    if t.os == "windows" or t.abi == "win64" do
+        is_win := true
+        shadow := 32
+    end
+    if t.os == "macos" or t.symbol_prefix == "_" do
+        is_mac := true
+        prefix := "_"
+    end
+    
+    X86Emitter {
+        output: "",
+        string_table: "",
+        string_count: 0,
+        label_count: 0,
+        symbol_prefix: prefix,
+        is_windows: is_win,
+        is_darwin: is_mac,
+        shadow_space: shadow
+    }
+end
+
+def emit_x86(e: X86Emitter, line: String) do
+    e.output := e.output + line + "\n"
+end
+
+def new_x86_label(e: X86Emitter): String do
+    lbl = ".L_x86_" + int_to_string(e.label_count)
+    e.label_count := e.label_count + 1
+    lbl
+end
+
+def add_x86_string(e: X86Emitter, str_val: String): String do
+    lbl = ".LC_str_" + int_to_string(e.string_count)
+    e.string_count := e.string_count + 1
+    e.string_table := e.string_table + lbl + ":\n    .string \"" + str_val + "\"\n"
+    lbl
+end
+
+def emit_x86_func_prologue(e: X86Emitter, func_name: String, stack_size: Integer) do
+    mut sym = func_name
+    if sym == "main" do
+        sym := "rubix_main"
+    end
+    full_sym = e.symbol_prefix + sym
+    
+    if e.is_darwin do
+        emit_x86(e, "\n.section __TEXT,__text,regular,pure_instructions")
+        emit_x86(e, ".globl " + full_sym)
+        emit_x86(e, full_sym + ":")
+    else if e.is_windows do
+        emit_x86(e, "\n.section .text")
+        emit_x86(e, ".globl " + full_sym)
+        emit_x86(e, full_sym + ":")
+    else do
+        emit_x86(e, "\n.section .text." + sym + ", \"ax\", @progbits")
+        emit_x86(e, ".globl " + full_sym)
+        emit_x86(e, ".type " + full_sym + ", @function")
+        emit_x86(e, full_sym + ":")
+    end
+    
+    emit_x86(e, "    pushq %rbp")
+    emit_x86(e, "    movq %rsp, %rbp")
+    
+    # Align stack frame to 16 bytes, including 32-byte shadow space for Windows x64
+    mut total_frame = stack_size + e.shadow_space
+    if total_frame < 32 do
+        total_frame := 32
+    end
+    if total_frame % 16 != 0 do
+        total_frame := total_frame + (16 - (total_frame % 16))
+    end
+    emit_x86(e, "    subq $" + int_to_string(total_frame) + ", %rsp")
+end
+
+def emit_x86_func_epilogue(e: X86Emitter) do
+    emit_x86(e, "    movq %rbp, %rsp")
+    emit_x86(e, "    popq %rbp")
+    emit_x86(e, "    ret")
+end
+
+def emit_x86_rodata(e: X86Emitter) do
+    if e.string_count > 0 do
+        if e.is_darwin do
+            emit_x86(e, "\n.section __TEXT,__cstring,cstring_literals")
+        else if e.is_windows do
+            emit_x86(e, "\n.section .rdata,\"dr\"")
+        else do
+            emit_x86(e, "\n.section .rodata")
+        end
+        emit_x86(e, e.string_table)
+    end
+end

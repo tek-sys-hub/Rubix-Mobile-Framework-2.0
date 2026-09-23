@@ -1,0 +1,21 @@
+# Build artifacts and binaries
+*.out
+*.o
+*.bin
+*.so
+*.a
+!runtime/*.a
+
+# Temporary files
+/tmp/
+*.tmp
+*.log
+
+# Editor & OS artifacts
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/settings.json

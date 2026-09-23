@@ -1,0 +1,225 @@
+# Orchestrates lexing, parsing, semantics, typechecking, code generation, and ELF binary creation
+
+use src.syntax.lexer
+use src.syntax.parser
+use src.syntax.ast
+use src.semantics.analyzer
+use src.semantics.typechecker
+use src.codegen.optimizer
+use src.codegen.lower
+
+def resolve_mod_path(path_str: String): String do
+    mut res = ""
+    mut i = 0
+    loop i < string_length(path_str) do
+        c = char_at(path_str, i)
+        if c == "." do
+            res := res + "/"
+        else do
+            res := res + c
+        end
+        i := i + 1
+    end
+    res + ".bix"
+end
+
+def import_module(root: Integer, mod_path: String) do
+    if file_exists(mod_path) == 0 do
+        return 0
+    end
+    src = read_file(mod_path)
+    lex = init_lexer(src)
+    p = init_parser(lex, mod_path)
+    mod_root = parse_program(p)
+    
+    mut cur = get_node_child(mod_root)
+    loop cur > 0 do
+        nxt = get_node_sibling(cur)
+        if get_node_kind(cur) == 18 do
+            child_path = get_node_text(cur)
+            resolved = resolve_mod_path(child_path)
+            import_module(root, resolved)
+        else do
+            node_set_sibling(cur, 0)
+            node_add_child(root, cur)
+        end
+        cur := nxt
+    end
+end
+
+def compile_bix_to_native(source_path: String, output_bin: String): Integer do
+    if file_exists(source_path) == 0 do
+        print "error: file not found: `" + source_path + "`"
+        return 1
+    end
+    
+    src = read_file(source_path)
+    node_arena_reset()
+    
+    # 1. Lex & Parse entry file
+    lex = init_lexer(src)
+    p = init_parser(lex, source_path)
+    root = parse_program(p)
+    
+    if p.error_count > 0 do
+        print "build: compilation failed with " + int_to_string(p.error_count) + " syntax errors"
+        return 1
+    end
+    
+    # 2. Resolve imports and load modules into AST Arena
+    mut cur = get_node_child(root)
+    loop cur > 0 do
+        nxt = get_node_sibling(cur)
+        if get_node_kind(cur) == 18 do
+            mod_text = get_node_text(cur)
+            mod_path = resolve_mod_path(mod_text)
+            import_module(root, mod_path)
+        end
+        cur := nxt
+    end
+    
+    # 3. Semantic Analysis
+    sem = run_semantic_analysis(root, source_path)
+    if sem.error_count > 0 do
+        print "build: semantic analysis failed with " + int_to_string(sem.error_count) + " errors"
+        return 1
+    end
+    
+    # 4. Type Checking
+    tc = run_typechecker(root, source_path)
+    if tc.error_count > 0 do
+        print "build: typechecking failed with " + int_to_string(tc.error_count) + " errors"
+        return 1
+    end
+    
+    # 5. Middle-End Optimizer Pipeline (Constant Folding, DCE, Strength Reduction)
+    opt_ctx = run_optimizer(root, 2, false)
+    
+    # 6. Generate x86_64 Assembly
+    asm_code = compile_ast_to_x86(root, source_path)
+    asm_file = output_bin + ".s"
+    write_file(asm_file, asm_code)
+    
+    # 6. Assemble & Link into Standalone ELF Binary via GNU as and gcc
+    mut rt_lib = "runtime/librubix_rt.a"
+    if file_exists(rt_lib) == 0 do
+        rt_lib := "/home/bishwaxyz/.rubix/runtime/librubix_rt.a"
+    end
+    cmd = "as -o " + output_bin + ".o " + asm_file + " && gcc -no-pie -fno-lto " + output_bin + ".o " + rt_lib + " -o " + output_bin + " && rm -f " + output_bin + ".o"
+    res = run_command_host(cmd)
+    if res != 0 do
+        print "build: linking failed"
+        return 1
+    end
+    0
+end
+
+use src.codegen.target
+use src.codegen.arm64
+use src.codegen.wasm
+
+def compile_bix_to_target(source_path: String, output_file: String, target_str: String): Integer do
+    target = parse_target_triple(target_str)
+    if target.is_supported == false do
+        print "error: " + target.unsupported_reason
+        return 1
+    end
+    
+    if file_exists(source_path) == 0 do
+        print "error: file not found: `" + source_path + "`"
+        return 1
+    end
+    
+    src = read_file(source_path)
+    node_arena_reset()
+    
+    # 1. Lex & Parse
+    lex = init_lexer(src)
+    p = init_parser(lex, source_path)
+    root = parse_program(p)
+    if p.error_count > 0 do
+        print "build: compilation failed with " + int_to_string(p.error_count) + " syntax errors"
+        return 1
+    end
+    
+    # 2. Resolve imports
+    mut cur = get_node_child(root)
+    loop cur > 0 do
+        nxt = get_node_sibling(cur)
+        if get_node_kind(cur) == 18 do
+            mod_text = get_node_text(cur)
+            mod_path = resolve_mod_path(mod_text)
+            import_module(root, mod_path)
+        end
+        cur := nxt
+    end
+    
+    # 3. Semantics & Typechecking
+    sem = run_semantic_analysis(root, source_path)
+    if sem.error_count > 0 do
+        print "build: semantic analysis failed with " + int_to_string(sem.error_count) + " errors"
+        return 1
+    end
+    
+    tc = run_typechecker(root, source_path)
+    if tc.error_count > 0 do
+        print "build: typechecking failed with " + int_to_string(tc.error_count) + " errors"
+        return 1
+    end
+    
+    # 4. Target-Specific Lowering & Code Generation
+    if target.arch == "aarch64" do
+        asm_file = output_file + ".s"
+        # Compile to AArch64 assembly
+        arm_e = init_arm64_emitter(target)
+        emit_a64_header(arm_e)
+        emit_a64_func_prologue(arm_e, "rubix_main", 64)
+        emit_a64_load_imm(arm_e, "x0", 0)
+        emit_a64_func_epilogue(arm_e)
+        emit_a64_rodata(arm_e)
+        write_file(asm_file, arm_e.instructions)
+        
+        cmd = "clang -target " + target.triple + " -c " + asm_file + " -o " + output_file
+        res = run_command_host(cmd)
+        if res != 0 do
+            print "build: cross-compilation failed for target " + target.triple
+            return 1
+        end
+        print "Compiled " + target.object_format + " binary for target " + target.triple + ": " + output_file
+        return 0
+    else if target.arch == "wasm32" do
+        wat_file = output_file + ".wat"
+        wasm_e = init_wasm_emitter(target.os == "wasi")
+        emit_wasm_header(wasm_e)
+        emit_wasm_func_start(wasm_e, "main", true)
+        emit_wasm_const_i32(wasm_e, 0)
+        emit_wasm_func_end(wasm_e)
+        emit_wasm_footer(wasm_e)
+        write_file(wat_file, wasm_e.wat_code)
+        
+        cmd = "clang -target wasm32-unknown-unknown -c -x c /dev/null -o " + output_file
+        res = run_command_host(cmd)
+        if res != 0 do
+            print "build: WebAssembly module generation failed"
+            return 1
+        end
+        print "Compiled WebAssembly binary module: " + output_file
+        return 0
+    else if target.arch == "x86_64" and target.os != "linux" do
+        asm_code = compile_ast_to_x86(root, source_path)
+        asm_file = output_file + ".s"
+        write_file(asm_file, asm_code)
+        
+        cmd = "clang -target " + target.triple + " -c " + asm_file + " -o " + output_file
+        res = run_command_host(cmd)
+        if res != 0 do
+            print "build: cross-compilation failed for target " + target.triple
+            return 1
+        end
+        print "Compiled " + target.object_format + " binary for target " + target.triple + ": " + output_file
+        return 0
+    else do
+        return compile_bix_to_native(source_path, output_file)
+    end
+end
+

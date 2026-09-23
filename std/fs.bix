@@ -1,0 +1,88 @@
+# Advanced File I/O, Directory Operations, and Path Manipulations
+
+module std.fs
+
+def path_join(dir: String, file: String): String do
+    if dir == "" do
+        return file
+    end
+    if file == "" do
+        return dir
+    end
+    if ends_with(dir, "/") do
+        return dir + file
+    end
+    dir + "/" + file
+end
+
+def path_basename(path: String): String do
+    if path == "" do
+        return ""
+    end
+    mut idx = string_length(path) - 1
+    loop idx >= 0 do
+        if char_at(path, idx) == "/" do
+            return substring(path, idx + 1, string_length(path))
+        end
+        idx := idx - 1
+    end
+    path
+end
+
+def path_extension(path: String): String do
+    if path == "" do
+        return ""
+    end
+    mut idx = string_length(path) - 1
+    loop idx >= 0 do
+        if char_at(path, idx) == "." do
+            return substring(path, idx, string_length(path))
+        end
+        if char_at(path, idx) == "/" do
+            return ""
+        end
+        idx := idx - 1
+    end
+    ""
+end
+
+def path_dirname(path: String): String do
+    if path == "" do
+        return "."
+    end
+    mut idx = string_length(path) - 1
+    loop idx >= 0 do
+        if char_at(path, idx) == "/" do
+            if idx == 0 do
+                return "/"
+            end
+            return substring(path, 0, idx)
+        end
+        idx := idx - 1
+    end
+    "."
+end
+
+def fs_read_text(path: String): Result[String, String] do
+    if file_exists(path) == false do
+        return Err("File not found: " + path)
+    end
+    content = read_file(path)
+    Ok(content)
+end
+
+def fs_write_text(path: String, content: String): Result[Boolean, String] do
+    res = write_file(path, content)
+    if res == false do
+        return Err("Failed to write to file: " + path)
+    end
+    Ok(true)
+end
+
+def fs_file_size(path: String): Integer do
+    if file_exists(path) == false do
+        return 0
+    end
+    c = read_file(path)
+    string_length(c)
+end

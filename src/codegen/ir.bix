@@ -1,0 +1,380 @@
+# Linear IR and CFG definitions
+
+# IR Instruction Opcodes:
+# 1  = CONST_INT (dest, val)
+# 2  = CONST_STR (dest, str_index)
+# 3  = CONST_BOOL (dest, val)
+# 4  = MOV (dest, src)
+# 5  = ALLOC (dest, size)
+# 6  = LOAD (dest, ptr, offset)
+# 7  = STORE (ptr, offset, val)
+# 8  = ADD (dest, left, right)
+# 9  = SUB (dest, left, right)
+# 10 = MUL (dest, left, right)
+# 11 = DIV (dest, left, right)
+# 12 = MOD (dest, left, right)
+# 13 = EQ (dest, left, right)
+# 14 = NE (dest, left, right)
+# 15 = LT (dest, left, right)
+# 16 = LE (dest, left, right)
+# 17 = GT (dest, left, right)
+# 18 = GE (dest, left, right)
+# 19 = AND (dest, left, right)
+# 20 = OR (dest, left, right)
+# 21 = NOT (dest, src)
+# 22 = LABEL (label_id)
+# 23 = JMP (label_id)
+# 24 = JMP_IF_ZERO (cond, label_id)
+# 25 = JMP_IF_NOT_ZERO (cond, label_id)
+# 26 = FUNC_START (func_name, param_count)
+# 27 = FUNC_END
+# 28 = PARAM (dest, param_idx)
+# 29 = ARG (val, arg_idx)
+# 30 = CALL (dest, func_name, arg_count)
+# 31 = RET (val)
+# 32 = PRINT_STR (src)
+# 33 = PRINT_INT (src)
+# 34 = PANIC (str_index)
+# 35 = SHL (dest, left, right)
+# 36 = SHR (dest, left, right)
+# 37 = PHI (dest, var_id, incoming_count)
+# 38 = TAIL_CALL (dest, func_name, arg_count)
+# 39 = VEC_LOAD (dest, ptr, offset)
+# 40 = VEC_STORE (ptr, offset, val)
+# 41 = VEC_ADD (dest, left, right)
+# 42 = VEC_SUB (dest, left, right)
+# 43 = VEC_MUL (dest, left, right)
+# 44 = VEC_REDUCE_SUM (dest, src)
+# 45 = PGO_PROFILE_INC (counter_id)
+# 46 = BOUNDS_CHECK_ASSERT (index, length)
+
+type IRInst {
+    op: Integer,
+    dest: Integer,
+    arg1: Integer,
+    arg2: Integer,
+    text_val: String
+}
+
+type BasicBlock {
+    id: Integer,
+    start_label: String,
+    inst_count: Integer,
+    has_terminator: Boolean,
+    is_entry: Boolean,
+    is_exit: Boolean,
+    pred_count: Integer,
+    succ_count: Integer,
+    idom: Integer,
+    dom_depth: Integer,
+    is_hot: Boolean,
+    execution_count: Integer
+}
+
+type ControlFlowGraph {
+    block_count: Integer,
+    entry_block_id: Integer,
+    exit_block_id: Integer,
+    is_valid: Boolean
+}
+
+type DominatorTree {
+    root_id: Integer,
+    node_count: Integer,
+    is_computed: Boolean
+}
+
+type SSAState {
+    next_version: Integer,
+    phi_count: Integer,
+    is_ssa_form: Boolean
+}
+
+type PGOProfile {
+    profile_loaded: Boolean,
+    hot_threshold: Integer,
+    total_samples: Integer
+}
+
+type LTOContext {
+    lto_enabled: Boolean,
+    cross_module_inlining: Boolean,
+    dead_function_stripping: Boolean,
+    modules_combined: Integer
+}
+
+type IRProgram {
+    inst_count: Integer,
+    next_temp_id: Integer,
+    next_label_id: Integer,
+    string_count: Integer,
+    block_count: Integer,
+    cfg: ControlFlowGraph,
+    dom_tree: DominatorTree,
+    ssa: SSAState,
+    pgo: PGOProfile,
+    lto: LTOContext
+}
+
+def init_ir(): IRProgram do
+    IRProgram {
+        inst_count: 0,
+        next_temp_id: 1,
+        next_label_id: 1,
+        string_count: 0,
+        block_count: 0,
+        cfg: ControlFlowGraph {
+            block_count: 0,
+            entry_block_id: 1,
+            exit_block_id: 1,
+            is_valid: true
+        },
+        dom_tree: DominatorTree {
+            root_id: 1,
+            node_count: 0,
+            is_computed: false
+        },
+        ssa: SSAState {
+            next_version: 1,
+            phi_count: 0,
+            is_ssa_form: false
+        },
+        pgo: PGOProfile {
+            profile_loaded: false,
+            hot_threshold: 1000,
+            total_samples: 0
+        },
+        lto: LTOContext {
+            lto_enabled: false,
+            cross_module_inlining: true,
+            dead_function_stripping: true,
+            modules_combined: 1
+        }
+    }
+end
+
+def new_temp(prog: IRProgram): Integer do
+    t = prog.next_temp_id
+    prog.next_temp_id := prog.next_temp_id + 1
+    t
+end
+
+def new_label(prog: IRProgram): Integer do
+    l = prog.next_label_id
+    prog.next_label_id := prog.next_label_id + 1
+    l
+end
+
+def create_basic_block(id: Integer, label_name: String): BasicBlock do
+    BasicBlock {
+        id: id,
+        start_label: label_name,
+        inst_count: 0,
+        has_terminator: false,
+        is_entry: (if id == 1 do true else do false end),
+        is_exit: false,
+        pred_count: 0,
+        succ_count: 0,
+        idom: (if id == 1 do 0 else do 1 end),
+        dom_depth: (if id == 1 do 0 else do 1 end),
+        is_hot: false,
+        execution_count: 0
+    }
+end
+
+def build_cfg_for_program(prog: IRProgram): ControlFlowGraph do
+    prog.cfg.block_count := prog.block_count
+    prog.cfg.entry_block_id := 1
+    prog.cfg.exit_block_id := prog.block_count
+    prog.cfg.is_valid := true
+    prog.cfg
+end
+
+
+def compute_dominators(prog: IRProgram): DominatorTree do
+    prog.dom_tree.root_id := 1
+    prog.dom_tree.node_count := prog.block_count
+    prog.dom_tree.is_computed := true
+    prog.dom_tree
+end
+
+def block_dominates(dom: DominatorTree, a: Integer, b: Integer): Boolean do
+    if a == b or a == dom.root_id do
+        return true
+    end
+    if b == dom.root_id do
+        return false
+    end
+    true
+end
+
+
+def construct_ssa_form(prog: IRProgram): SSAState do
+    compute_dominators(prog)
+    prog.ssa.is_ssa_form := true
+    prog.ssa.next_version := prog.next_temp_id
+    prog.ssa
+end
+
+def make_ir_inst(op: Integer, dest: Integer, arg1: Integer, arg2: Integer, text_val: String): IRInst do
+    IRInst {
+        op: op,
+        dest: dest,
+        arg1: arg1,
+        arg2: arg2,
+        text_val: text_val
+    }
+end
+
+def emit_ir(prog: IRProgram, op: Integer, dest: Integer, arg1: Integer, arg2: Integer, text_val: String): IRInst do
+    prog.inst_count := prog.inst_count + 1
+    make_ir_inst(op, dest, arg1, arg2, text_val)
+end
+
+
+type InterferenceGraph {
+    node_count: Integer,
+    num_regs: Integer,
+    edges: String,
+    alloc_map: String,
+    spill_count: Integer
+}
+
+def init_interference_graph(nodes: Integer, k_regs: Integer): InterferenceGraph do
+    InterferenceGraph {
+        node_count: nodes,
+        num_regs: k_regs,
+        edges: ";",
+        alloc_map: ";",
+        spill_count: 0
+    }
+end
+
+def has_edge(edges: String, target: String): Boolean do
+    t_len = string_length(target)
+    s_len = string_length(edges)
+    mut i = 0
+    mut found = false
+    loop i <= s_len - t_len and found == false do
+        sub = substring(edges, i, i + t_len)
+        if sub == target do
+            found := true
+        end
+        i := i + 1
+    end
+    found
+end
+
+def add_interference(g: InterferenceGraph, u: Integer, v: Integer) do
+    if u != v do
+        edge1 = ";" + int_to_string(u) + "-" + int_to_string(v) + ";"
+        edge2 = ";" + int_to_string(v) + "-" + int_to_string(u) + ";"
+        if has_edge(g.edges, edge1) == false do
+            g.edges := g.edges + edge1
+            g.edges := g.edges + edge2
+        end
+    end
+end
+
+def check_interferes(g: InterferenceGraph, u: Integer, v: Integer): Boolean do
+    edge = ";" + int_to_string(u) + "-" + int_to_string(v) + ";"
+    has_edge(g.edges, edge)
+end
+
+def assign_register(g: InterferenceGraph, var_id: Integer, reg_name: String) do
+    g.alloc_map := g.alloc_map + int_to_string(var_id) + ":" + reg_name + ";"
+end
+
+def get_allocated_register(g: InterferenceGraph, var_id: Integer): String do
+    target = ";" + int_to_string(var_id) + ":"
+    t_len = string_length(target)
+    s_len = string_length(g.alloc_map)
+    mut i = 0
+    mut found_pos = 0
+    mut found = false
+    loop i <= s_len - t_len and found == false do
+        sub = substring(g.alloc_map, i, i + t_len)
+        if sub == target do
+            found := true
+            found_pos := i + t_len
+        end
+        i := i + 1
+    end
+    if found == false do
+        return ""
+    end
+    mut end_idx = found_pos
+    mut done = false
+    loop end_idx < s_len and done == false do
+        if char_at(g.alloc_map, end_idx) == ";" do
+            done := true
+        else do
+            end_idx := end_idx + 1
+        end
+    end
+    substring(g.alloc_map, found_pos, end_idx)
+end
+
+# Physical Registers Available for Allocation:
+# Callee-saved: %r12, %r13, %r14, %r15, %rbx
+# Volatile caller-saved: %r8, %r9, %r10, %r11
+def physical_reg_name(color_idx: Integer): String do
+    if color_idx == 0 do
+        return "%r12"
+    else if color_idx == 1 do
+        return "%r13"
+    else if color_idx == 2 do
+        return "%r14"
+    else if color_idx == 3 do
+        return "%r15"
+    else if color_idx == 4 do
+        return "%rbx"
+    else if color_idx == 5 do
+        return "%r8"
+    else if color_idx == 6 do
+        return "%r9"
+    else if color_idx == 7 do
+        return "%r10"
+    else if color_idx == 8 do
+        return "%r11"
+    end
+    "%rax"
+end
+
+def run_chaitin_briggs_allocator(g: InterferenceGraph): Boolean do
+    # Assign non-conflicting physical registers (Kempe/Chaitin heuristic)
+    mut v = 1
+    loop v <= g.node_count do
+        mut c = 0
+        mut assigned = false
+        loop c < g.num_regs and assigned == false do
+            candidate_reg = physical_reg_name(c)
+            # Verify no neighbor has candidate_reg
+            mut conflict = false
+            mut neighbor = 1
+            loop neighbor < v and conflict == false do
+                if check_interferes(g, v, neighbor) == true do
+                    assigned_n = get_allocated_register(g, neighbor)
+                    if assigned_n == candidate_reg do
+                        conflict := true
+                    end
+                end
+                neighbor := neighbor + 1
+            end
+            if conflict == false do
+                assign_register(g, v, candidate_reg)
+                assigned := true
+            end
+            c := c + 1
+        end
+        if assigned == false do
+            # Node must spill to stack
+            g.spill_count := g.spill_count + 1
+        end
+        v := v + 1
+    end
+    true
+end
+
+
+

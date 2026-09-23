@@ -1,0 +1,915 @@
+# Deterministic recursive-descent Pratt parser for the Rubix programming language
+
+use src.syntax.lexer
+use src.syntax.ast
+
+type Parser do
+    lex: Lexer
+    curr: Token
+    peek: Token
+    error_count: Integer
+    filename: String
+end
+
+def advance_parser(p: Parser) do
+    p.curr := p.peek
+    p.peek := next_token(p.lex)
+end
+
+def init_parser(lex: Lexer, filename: String): Parser do
+    t1 = Token { kind: 0, text: "", line: 0, column: 0 }
+    t2 = Token { kind: 0, text: "", line: 0, column: 0 }
+    p = Parser { lex: lex, curr: t1, peek: t2, error_count: 0, filename: filename }
+    advance_parser(p)
+    advance_parser(p)
+    p
+end
+
+def parser_error(p: Parser, msg: String) do
+    print "error: " + msg
+    print "  --> " + p.filename + ":" + int_to_string(p.curr.line) + ":" + int_to_string(p.curr.column)
+    print "  actual token: " + p.curr.text
+    p.error_count := p.error_count + 1
+end
+
+def match_kind(p: Parser, expected_kind: Integer): Boolean do
+    if p.curr.kind == expected_kind do
+        advance_parser(p)
+        true
+    else do
+        false
+    end
+end
+
+def expect_kind(p: Parser, expected_kind: Integer, msg: String): Boolean do
+    if p.curr.kind == expected_kind do
+        advance_parser(p)
+        true
+    else do
+        parser_error(p, msg)
+        false
+    end
+end
+
+def expect_keyword(p: Parser, kw: String, msg: String): Boolean do
+    if p.curr.kind == 1 and p.curr.text == kw do
+        advance_parser(p)
+        true
+    else do
+        parser_error(p, msg)
+        false
+    end
+end
+
+
+def get_precedence(t: Token): Integer do
+    if t.kind == 6 do # Operator
+        if t.text == "or" do
+            10
+        else if t.text == "and" do
+            15
+        else if t.text == "==" or t.text == "!=" do
+            20
+        else if t.text == "<" or t.text == ">" or t.text == "<=" or t.text == ">=" do
+            30
+        else if t.text == ".." do
+            35
+        else if t.text == "+" or t.text == "-" do
+            40
+        else if t.text == "*" or t.text == "/" or t.text == "%" do
+            50
+        else do
+            0
+        end
+    else do
+        0
+    end
+end
+
+
+def parse_expression(p: Parser, min_prec: Integer): Integer do
+    left = parse_prefix(p)
+    
+    done = false
+    loop done == false do
+        prec = get_precedence(p.curr)
+        if prec > min_prec do
+            left := parse_infix(p, left)
+        else do
+            done := true
+        end
+    end
+    
+    left
+end
+
+def parse_prefix(p: Parser): Integer do
+    t = p.curr
+    
+    if t.kind == 3 do # Integer
+        advance_parser(p)
+        node = create_node(9, t.line, t.column, t.text)
+        set_node_type(node, 2) # Int
+        node
+    else if t.kind == 4 do # Float
+        advance_parser(p)
+        node = create_node(9, t.line, t.column, t.text)
+        set_node_type(node, 3) # Float
+        node
+    else if t.kind == 5 do # String
+        advance_parser(p)
+        node = create_node(9, t.line, t.column, t.text)
+        set_node_type(node, 5) # String
+        node
+    else if t.kind == 1 and (t.text == "true" or t.text == "false") do
+        advance_parser(p)
+        node = create_node(9, t.line, t.column, t.text)
+        set_node_type(node, 4) # Bool
+        node
+    else if t.kind == 1 and t.text == "if" do
+        parse_if(p)
+    else if t.kind == 1 and t.text == "match" do
+        parse_match(p)
+    else if t.kind == 2 do # Identifier
+        advance_parser(p)
+        id_node = create_node(8, t.line, t.column, t.text)
+        parse_postfix(p, id_node)
+    else if (t.kind == 6 and t.text == "-") or (t.kind == 6 and t.text == "not") or (t.kind == 7 and t.text == "!") do
+        advance_parser(p)
+        operand = parse_expression(p, 60)
+        unary_node = create_node(10, t.line, t.column, t.text)
+        add_child(unary_node, operand)
+        unary_node
+    else if t.kind == 7 and t.text == "(" do # Grouping
+        advance_parser(p)
+        expr = parse_expression(p, 0)
+        expect_kind(p, 7, "expected ')'")
+        expr
+    else if t.kind == 7 and t.text == "[" do # List literal: [e1, e2, ...]
+        advance_parser(p)
+        list_node = create_node(29, t.line, t.column, "list")
+        if p.curr.kind != 7 or p.curr.text != "]" do
+            loop p.curr.kind != 8 and (p.curr.kind != 7 or p.curr.text != "]") do
+                elem = parse_expression(p, 0)
+                add_child(list_node, elem)
+                if p.curr.kind == 7 and p.curr.text == "," do
+                    advance_parser(p)
+                end
+            end
+        end
+        expect_kind(p, 7, "expected ']' to close list literal")
+        list_node
+    else if t.kind == 1 and (t.text == "fn" or t.text == "def") do # Anonymous lambda
+        advance_parser(p)
+        lambda_node = create_node(25, t.line, t.column, "lambda")
+        expect_kind(p, 7, "expected '(' after lambda fn")
+        if p.curr.kind != 7 or p.curr.text != ")" do
+            p_done = false
+            loop p_done == false do
+                pname_tok = p.curr
+                expect_kind(p, 2, "expected parameter name")
+                p_node = create_node(13, pname_tok.line, pname_tok.column, pname_tok.text)
+                if p.curr.kind == 7 and p.curr.text == ":" do
+                    advance_parser(p)
+                    ptype_tok = p.curr
+                    expect_kind(p, 2, "expected type annotation")
+                end
+                add_child(lambda_node, p_node)
+                if p.curr.kind == 7 and p.curr.text == "," do
+                    advance_parser(p)
+                else do
+                    p_done := true
+                end
+            end
+        end
+        expect_kind(p, 7, "expected ')' after lambda parameters")
+        if p.curr.kind == 6 and p.curr.text == "=>" do
+            advance_parser(p)
+            body_expr = parse_expression(p, 0)
+            add_child(lambda_node, body_expr)
+        else do
+            body_block = parse_block(p)
+            add_child(lambda_node, body_block)
+        end
+        lambda_node
+    else if t.kind == 7 and t.text == "{" do # Block expression
+        parse_block(p)
+    else do
+        parser_error(p, "unexpected token in expression: " + t.text)
+        advance_parser(p)
+        0
+    end
+end
+
+def parse_postfix(p: Parser, base_node: Integer): Integer do
+    cur = base_node
+    done = false
+    
+    loop done == false do
+        if p.curr.kind == 7 and p.curr.text == "(" do
+            # Function Call: func(args)
+            t = p.curr
+            advance_parser(p)
+            call_node = create_node(15, t.line, t.column, "call")
+            add_child(call_node, cur)
+            
+            if p.curr.kind != 7 or p.curr.text != ")" do
+                arg_done = false
+                loop arg_done == false do
+                    arg = parse_expression(p, 0)
+                    add_child(call_node, arg)
+                    if p.curr.kind == 7 and p.curr.text == "," do
+                        advance_parser(p)
+                    else do
+                        arg_done := true
+                    end
+                end
+            end
+            expect_kind(p, 7, "expected ')' after call arguments")
+            cur := call_node
+            
+        else if p.curr.kind == 7 and p.curr.text == "{" and (get_node_text(cur).length() > 0 and get_node_text(cur).byte_at(0) >= 65 and get_node_text(cur).byte_at(0) <= 90) do
+            # Struct Initialization: Type { field: val, ... }
+            t = p.curr
+            advance_parser(p)
+            type_name = get_node_text(cur)
+            init_node = create_node(16, t.line, t.column, type_name)
+            
+            if p.curr.kind != 7 or p.curr.text != "}" do
+                f_done = false
+                loop f_done == false do
+                    if p.curr.kind == 7 and p.curr.text == "}" do
+                        f_done := true
+                    else do
+                        fname_tok = p.curr
+                        expect_kind(p, 2, "expected field name")
+                        expect_kind(p, 7, "expected ':' after field name")
+                        fval = parse_expression(p, 0)
+                        f_assign = create_node(6, fname_tok.line, fname_tok.column, fname_tok.text)
+                        add_child(f_assign, fval)
+                        add_child(init_node, f_assign)
+                        
+                        if p.curr.kind == 7 and p.curr.text == "," do
+                            advance_parser(p)
+                        else do
+                            f_done := true
+                        end
+                    end
+                end
+            end
+            expect_kind(p, 7, "expected '}' after struct fields")
+            cur := init_node
+            
+        else if p.curr.kind == 7 and p.curr.text == "[" do
+            # Index Access: obj[idx]
+            t = p.curr
+            advance_parser(p)
+            idx_node = parse_expression(p, 0)
+            expect_kind(p, 7, "expected ']' after index")
+            
+            idx_access = create_node(27, t.line, t.column, "index")
+            add_child(idx_access, cur)
+            add_child(idx_access, idx_node)
+            cur := idx_access
+            
+        else if p.curr.kind == 7 and p.curr.text == "." do
+            # Member Access: obj.field
+            advance_parser(p)
+            mem_tok = p.curr
+            expect_kind(p, 2, "expected member identifier after '.'")
+            mem_node = create_node(17, mem_tok.line, mem_tok.column, mem_tok.text)
+            add_child(mem_node, cur)
+            cur := mem_node
+            
+        else if p.curr.kind == 6 and p.curr.text == "?" do
+            # Try Operator: expr?
+            t = p.curr
+            advance_parser(p)
+            try_node = create_node(26, t.line, t.column, "?")
+            add_child(try_node, cur)
+            cur := try_node
+            
+        else do
+            done := true
+        end
+    end
+    
+    cur
+end
+
+def parse_infix(p: Parser, left: Integer): Integer do
+    op_tok = p.curr
+    prec = get_precedence(op_tok)
+    advance_parser(p) # consume operator
+    
+    right = parse_expression(p, prec)
+    
+    if op_tok.text == ".." do
+        range_node = create_node(28, op_tok.line, op_tok.column, "..")
+        add_child(range_node, left)
+        add_child(range_node, right)
+        range_node
+    else do
+        bin_node = create_node(7, op_tok.line, op_tok.column, op_tok.text)
+        add_child(bin_node, left)
+        add_child(bin_node, right)
+        bin_node
+    end
+end
+
+
+def parse_statement(p: Parser): Integer do
+    t = p.curr
+    
+    if t.kind == 1 and t.text == "let" do
+        # Immutable binding: let x: Type = expr
+        advance_parser(p)
+        id_tok = p.curr
+        expect_kind(p, 2, "expected identifier after 'let'")
+        
+        type_annot = 0
+        if p.curr.kind == 7 and p.curr.text == ":" do
+            advance_parser(p)
+            ttok = p.curr
+            expect_kind(p, 2, "expected type annotation")
+            type_annot := create_node(14, ttok.line, ttok.column, ttok.text)
+        end
+        
+        expect_kind(p, 6, "expected '=' in let binding")
+        init_val = parse_expression(p, 0)
+        
+        let_node = create_node(20, t.line, t.column, id_tok.text)
+        id_node = create_node(8, id_tok.line, id_tok.column, id_tok.text)
+        if type_annot > 0 do
+            add_child(id_node, type_annot)
+        end
+        add_child(let_node, id_node)
+        add_child(let_node, init_val)
+        let_node
+        
+    else if t.kind == 1 and t.text == "mut" do
+        # Mutable binding: mut x: Type = expr
+        advance_parser(p)
+        id_tok = p.curr
+        expect_kind(p, 2, "expected identifier after 'mut'")
+        
+        type_annot = 0
+        if p.curr.kind == 7 and p.curr.text == ":" do
+            advance_parser(p)
+            ttok = p.curr
+            expect_kind(p, 2, "expected type annotation")
+            type_annot := create_node(14, ttok.line, ttok.column, ttok.text)
+        end
+        
+        expect_kind(p, 6, "expected '=' in mut binding")
+        init_val = parse_expression(p, 0)
+        
+        mut_node = create_node(21, t.line, t.column, id_tok.text)
+        id_node = create_node(8, id_tok.line, id_tok.column, id_tok.text)
+        if type_annot > 0 do
+            add_child(id_node, type_annot)
+        end
+        add_child(mut_node, id_node)
+        add_child(mut_node, init_val)
+        mut_node
+        
+    else if t.kind == 1 and t.text == "return" do
+        advance_parser(p)
+        node = create_node(19, t.line, t.column, "return")
+        if p.curr.kind != 7 or p.curr.text != "}" do
+            if p.curr.kind != 1 or (p.curr.text != "end" and p.curr.text != "else") do
+                expr = parse_expression(p, 0)
+                add_child(node, expr)
+            end
+        end
+        node
+        
+    else if t.kind == 1 and t.text == "print" do
+        advance_parser(p)
+        node = create_node(30, t.line, t.column, "print")
+        expr = parse_expression(p, 0)
+        add_child(node, expr)
+        node
+        
+    else if t.kind == 1 and t.text == "fail" do
+        advance_parser(p)
+        node = create_node(31, t.line, t.column, "fail")
+        expr = parse_expression(p, 0)
+        add_child(node, expr)
+        node
+        
+    else if t.kind == 1 and t.text == "if" do
+        parse_if(p)
+        
+    else if t.kind == 1 and t.text == "match" do
+        parse_match(p)
+        
+    else if t.kind == 1 and t.text == "for" do
+        parse_for(p)
+        
+    else if t.kind == 1 and t.text == "loop" do
+        parse_loop(p)
+        
+    else if t.kind == 1 and (t.text == "fn" or t.text == "def") do
+        if p.peek.kind == 7 and p.peek.text == "(" do
+            parse_expression(p, 0)
+        else do
+            parse_function(p)
+        end
+        
+    else do
+        expr = parse_expression(p, 0)
+        
+        # Check for assignment / reassignment: target = expr or target := expr
+        if p.curr.kind == 6 and (p.curr.text == "=" or p.curr.text == ":=") do
+            assign_tok = p.curr
+            advance_parser(p)
+            val = parse_expression(p, 0)
+            
+            assign_node = create_node(6, assign_tok.line, assign_tok.column, assign_tok.text)
+            add_child(assign_node, expr)
+            add_child(assign_node, val)
+            assign_node
+        else do
+            expr
+        end
+    end
+end
+
+def parse_block(p: Parser): Integer do
+    t = p.curr
+    
+    if t.kind == 7 and t.text == "{" do
+        advance_parser(p) # consume '{'
+        block_node = create_node(3, t.line, t.column, "block")
+        
+        loop p.curr.kind != 8 and (p.curr.kind != 7 or p.curr.text != "}") do
+            stmt = parse_statement(p)
+            add_child(block_node, stmt)
+            if p.curr.kind == 7 and p.curr.text == ";" do
+                advance_parser(p)
+            end
+        end
+        expect_kind(p, 7, "expected '}' to close block")
+        block_node
+        
+    else if t.kind == 1 and t.text == "do" do
+        # do ... end compatibility
+        advance_parser(p) # consume 'do'
+        block_node = create_node(3, t.line, t.column, "block")
+        
+        loop p.curr.kind != 8 and (p.curr.kind != 1 or (p.curr.text != "end" and p.curr.text != "else")) do
+            stmt = parse_statement(p)
+            add_child(block_node, stmt)
+        end
+        block_node
+    else do
+        parser_error(p, "expected block '{'")
+        0
+    end
+end
+
+def parse_if(p: Parser): Integer do
+    t = p.curr
+    advance_parser(p) # consume 'if'
+    
+    cond = parse_expression(p, 0)
+    
+    if p.curr.kind == 1 and p.curr.text == "do" do
+        advance_parser(p)
+    end
+    
+    if_node = create_node(4, t.line, t.column, "if")
+    add_child(if_node, cond)
+    
+    then_block = create_node(3, p.curr.line, p.curr.column, "block")
+    if p.curr.kind == 7 and p.curr.text == "{" do
+        then_block := parse_block(p)
+    else do
+        loop p.curr.kind != 8 and (p.curr.text != "else" and p.curr.text != "end") do
+            stmt = parse_statement(p)
+            add_child(then_block, stmt)
+        end
+    end
+    add_child(if_node, then_block)
+    
+    if p.curr.kind == 1 and p.curr.text == "else" do
+        advance_parser(p) # consume 'else'
+        
+        else_block = create_node(3, p.curr.line, p.curr.column, "block")
+        
+        if p.curr.kind == 1 and p.curr.text == "if" do
+            elif_stmt = parse_if(p)
+            add_child(else_block, elif_stmt)
+            add_child(if_node, else_block)
+            return if_node
+        else if p.curr.kind == 7 and p.curr.text == "{" do
+            else_block := parse_block(p)
+        else if p.curr.kind == 1 and p.curr.text == "do" do
+            advance_parser(p)
+            loop p.curr.kind != 8 and p.curr.text != "end" do
+                stmt = parse_statement(p)
+                add_child(else_block, stmt)
+            end
+        else do
+            stmt = parse_statement(p)
+            add_child(else_block, stmt)
+        end
+        add_child(if_node, else_block)
+    end
+    
+    if p.curr.kind == 1 and p.curr.text == "end" do
+        advance_parser(p)
+    end
+    
+    if_node
+end
+
+def parse_match(p: Parser): Integer do
+    t = p.curr
+    advance_parser(p) # consume 'match'
+    
+    target = parse_expression(p, 0)
+    expect_kind(p, 7, "expected '{' after match target")
+    
+    match_node = create_node(11, t.line, t.column, "match")
+    add_child(match_node, target)
+    
+    loop p.curr.kind != 8 and (p.curr.kind != 7 or p.curr.text != "}") do
+        arm_tok = p.curr
+        
+        # Parse pattern (identifier, wildcard, or literal)
+        pat_node = 0
+        if p.curr.kind == 2 and p.curr.text == "_" do
+            advance_parser(p)
+            pat_node := create_node(8, arm_tok.line, arm_tok.column, "_")
+        else if p.curr.kind == 2 do
+            pat_name = p.curr.text
+            advance_parser(p)
+            pat_node := create_node(8, arm_tok.line, arm_tok.column, pat_name)
+            
+            # Variant arguments: Some(x) or Rect(w, h)
+            if p.curr.kind == 7 and p.curr.text == "(" do
+                advance_parser(p)
+                loop p.curr.kind != 8 and (p.curr.kind != 7 or p.curr.text != ")") do
+                    if p.curr.kind == 2 do
+                        v_arg = create_node(8, p.curr.line, p.curr.column, p.curr.text)
+                        add_child(pat_node, v_arg)
+                        advance_parser(p)
+                        if p.curr.kind == 7 and p.curr.text == "," do
+                            advance_parser(p)
+                        end
+                    else do
+                        advance_parser(p)
+                    end
+                end
+                expect_kind(p, 7, "expected ')' after pattern parameters")
+            end
+        else do
+            pat_node := parse_expression(p, 0)
+        end
+        
+        # '=>'
+        if p.curr.kind == 6 and p.curr.text == "=>" do
+            advance_parser(p)
+        else do
+            parser_error(p, "expected '=>' after match pattern")
+        end
+        
+        arm_body = parse_expression(p, 0)
+        
+        arm_node = create_node(12, arm_tok.line, arm_tok.column, "arm")
+        add_child(arm_node, pat_node)
+        add_child(arm_node, arm_body)
+        add_child(match_node, arm_node)
+        
+        if p.curr.kind == 7 and p.curr.text == "," do
+            advance_parser(p)
+        end
+    end
+    
+    expect_kind(p, 7, "expected '}' to close match expression")
+    match_node
+end
+
+def parse_for(p: Parser): Integer do
+    t = p.curr
+    advance_parser(p) # consume 'for'
+    
+    var_tok = p.curr
+    expect_kind(p, 2, "expected loop variable after 'for'")
+    expect_keyword(p, "in", "expected 'in' after for variable")
+    
+    iter_expr = parse_expression(p, 0)
+    body_block = parse_block(p)
+    
+    for_node = create_node(24, t.line, t.column, var_tok.text)
+    add_child(for_node, iter_expr)
+    add_child(for_node, body_block)
+    for_node
+end
+
+def parse_loop(p: Parser): Integer do
+    t = p.curr
+    advance_parser(p) # consume 'loop'
+    
+    cond = 0
+    if p.curr.kind != 7 or p.curr.text != "{" do
+        if p.curr.kind != 1 or p.curr.text != "do" do
+            cond := parse_expression(p, 0)
+        end
+    end
+    
+    if p.curr.kind == 1 and p.curr.text == "do" do
+        advance_parser(p)
+    end
+    
+    loop_node = create_node(5, t.line, t.column, "loop")
+    if cond > 0 do
+        add_child(loop_node, cond)
+    end
+    
+    body_block = create_node(3, p.curr.line, p.curr.column, "block")
+    if p.curr.kind == 7 and p.curr.text == "{" do
+        body_block := parse_block(p)
+    else do
+        loop p.curr.kind != 8 and p.curr.text != "end" do
+            stmt = parse_statement(p)
+            add_child(body_block, stmt)
+        end
+        expect_keyword(p, "end", "expected 'end' to close loop")
+    end
+    
+    add_child(loop_node, body_block)
+    loop_node
+end
+
+
+def parse_function(p: Parser): Integer do
+    t = p.curr
+    advance_parser(p) # consume 'fn' or 'def'
+    
+    name_tok = p.curr
+    expect_kind(p, 2, "expected function name")
+    
+    func_node = create_node(2, t.line, t.column, name_tok.text)
+    
+    # Generic type parameters: [T, E]
+    if p.curr.kind == 7 and p.curr.text == "[" do
+        advance_parser(p)
+        loop p.curr.kind != 8 and (p.curr.kind != 7 or p.curr.text != "]") do
+            if p.curr.kind == 2 do
+                gtok = p.curr
+                gnode = create_node(13, gtok.line, gtok.column, gtok.text)
+                add_child(func_node, gnode)
+                advance_parser(p)
+                if p.curr.kind == 7 and p.curr.text == "," do
+                    advance_parser(p)
+                end
+            else do
+                advance_parser(p)
+            end
+        end
+        expect_kind(p, 7, "expected ']' after generic parameters")
+    end
+    
+    expect_kind(p, 7, "expected '(' after function name")
+    
+    # Parameters
+    if p.curr.kind != 7 or p.curr.text != ")" do
+        done = false
+        loop done == false do
+            ptok = p.curr
+            expect_kind(p, 2, "expected parameter name")
+            pnode = create_node(13, ptok.line, ptok.column, ptok.text)
+            
+            if p.curr.kind == 7 and p.curr.text == ":" do
+                advance_parser(p)
+                ttok = p.curr
+                if p.curr.kind == 2 or (p.curr.kind == 1 and p.curr.text == "fn") do
+                    advance_parser(p)
+                else do
+                    parser_error(p, "expected parameter type annotation")
+                end
+                tnode = create_node(14, ttok.line, ttok.column, ttok.text)
+                if p.curr.kind == 7 and p.curr.text == "[" do
+                    advance_parser(p)
+                    loop p.curr.kind != 8 and (p.curr.kind != 7 or p.curr.text != "]") do
+                        if p.curr.kind == 2 do
+                            gtok = p.curr
+                            gnode = create_node(13, gtok.line, gtok.column, gtok.text)
+                            add_child(tnode, gnode)
+                            advance_parser(p)
+                            if p.curr.kind == 7 and p.curr.text == "," do
+                                advance_parser(p)
+                            end
+                        else do
+                            advance_parser(p)
+                        end
+                    end
+                    expect_kind(p, 7, "expected ']' after generic type arguments")
+                end
+                add_child(pnode, tnode)
+            end
+            
+            add_child(func_node, pnode)
+            
+            if p.curr.kind == 7 and p.curr.text == "," do
+                advance_parser(p)
+            else do
+                done := true
+            end
+        end
+    end
+    expect_kind(p, 7, "expected ')' after parameter list")
+    
+    # Return type: ': Type' or ': Type[A, B]'
+    if p.curr.kind == 7 and p.curr.text == ":" do
+        advance_parser(p)
+        ret_tok = p.curr
+        if p.curr.kind == 2 or (p.curr.kind == 1 and p.curr.text == "fn") do
+            advance_parser(p)
+        else do
+            parser_error(p, "expected return type annotation")
+        end
+        ret_node = create_node(14, ret_tok.line, ret_tok.column, ret_tok.text)
+        if p.curr.kind == 7 and p.curr.text == "[" do
+            advance_parser(p)
+            loop p.curr.kind != 8 and (p.curr.kind != 7 or p.curr.text != "]") do
+                if p.curr.kind == 2 do
+                    gtok = p.curr
+                    gnode = create_node(13, gtok.line, gtok.column, gtok.text)
+                    add_child(ret_node, gnode)
+                    advance_parser(p)
+                    if p.curr.kind == 7 and p.curr.text == "," do
+                        advance_parser(p)
+                    end
+                else do
+                    advance_parser(p)
+                end
+            end
+            expect_kind(p, 7, "expected ']' after generic type arguments")
+        end
+        add_child(func_node, ret_node)
+    end
+    
+    if p.curr.kind == 1 and p.curr.text == "do" do
+        advance_parser(p)
+        body_block = create_node(3, p.curr.line, p.curr.column, "block")
+        loop p.curr.kind != 8 and p.curr.text != "end" do
+            stmt = parse_statement(p)
+            add_child(body_block, stmt)
+        end
+        expect_keyword(p, "end", "expected 'end' to close function")
+        add_child(func_node, body_block)
+    else do
+        body_block = parse_block(p)
+        add_child(func_node, body_block)
+    end
+    
+    func_node
+end
+
+def parse_type_decl(p: Parser): Integer do
+    t = p.curr
+    advance_parser(p) # consume 'type'
+    
+    name_tok = p.curr
+    expect_kind(p, 2, "expected type name")
+    
+    type_node = create_node(14, t.line, t.column, name_tok.text)
+    
+    if p.curr.kind == 7 and p.curr.text == "{" do
+        advance_parser(p) # consume '{'
+        loop p.curr.kind != 8 and (p.curr.kind != 7 or p.curr.text != "}") do
+            fname_tok = p.curr
+            expect_kind(p, 2, "expected field name")
+            expect_kind(p, 7, "expected ':' after field name")
+            ftype_tok = p.curr
+            expect_kind(p, 2, "expected field type")
+            
+            field_node = create_node(13, fname_tok.line, fname_tok.column, fname_tok.text)
+            type_annot = create_node(14, ftype_tok.line, ftype_tok.column, ftype_tok.text)
+            add_child(field_node, type_annot)
+            add_child(type_node, field_node)
+            
+            if p.curr.kind == 7 and p.curr.text == "," do
+                advance_parser(p)
+            end
+        end
+        expect_kind(p, 7, "expected '}' after struct fields")
+    else if p.curr.kind == 1 and p.curr.text == "do" do
+        advance_parser(p)
+        loop p.curr.kind != 8 and p.curr.text != "end" do
+            fname_tok = p.curr
+            expect_kind(p, 2, "expected field name")
+            expect_kind(p, 7, "expected ':' after field name")
+            ftype_tok = p.curr
+            expect_kind(p, 2, "expected field type")
+            
+            field_node = create_node(13, fname_tok.line, fname_tok.column, fname_tok.text)
+            type_annot = create_node(14, ftype_tok.line, ftype_tok.column, ftype_tok.text)
+            add_child(field_node, type_annot)
+            add_child(type_node, field_node)
+        end
+        expect_keyword(p, "end", "expected 'end' after type declaration")
+    end
+    
+    type_node
+end
+
+def parse_enum_decl(p: Parser): Integer do
+    t = p.curr
+    advance_parser(p) # consume 'enum'
+    
+    name_tok = p.curr
+    expect_kind(p, 2, "expected enum name")
+    
+    enum_node = create_node(22, t.line, t.column, name_tok.text)
+    expect_kind(p, 7, "expected '{' after enum name")
+    
+    loop p.curr.kind != 8 and (p.curr.kind != 7 or p.curr.text != "}") do
+        v_tok = p.curr
+        expect_kind(p, 2, "expected variant name")
+        v_node = create_node(23, v_tok.line, v_tok.column, v_tok.text)
+        
+        # Variant payload types: Variant(Type1, Type2)
+        if p.curr.kind == 7 and p.curr.text == "(" do
+            advance_parser(p)
+            loop p.curr.kind != 8 and (p.curr.kind != 7 or p.curr.text != ")") do
+                if p.curr.kind == 2 do
+                    vtype_tok = p.curr
+                    type_annot = create_node(14, vtype_tok.line, vtype_tok.column, vtype_tok.text)
+                    add_child(v_node, type_annot)
+                    advance_parser(p)
+                    if p.curr.kind == 7 and p.curr.text == "," do
+                        advance_parser(p)
+                    end
+                else do
+                    advance_parser(p)
+                end
+            end
+            expect_kind(p, 7, "expected ')' after variant payload types")
+        end
+        
+        add_child(enum_node, v_node)
+        if p.curr.kind == 7 and p.curr.text == "," do
+            advance_parser(p)
+        end
+    end
+    
+    expect_kind(p, 7, "expected '}' after enum variants")
+    enum_node
+end
+
+def parse_use_stmt(p: Parser): Integer do
+    t = p.curr
+    advance_parser(p) # consume 'use'
+    
+    path = ""
+    done = false
+    loop done == false do
+        if p.curr.kind == 2 do
+            if path == "" do
+                path := p.curr.text
+            else do
+                path := path + "." + p.curr.text
+            end
+            advance_parser(p)
+            if p.curr.kind == 7 and p.curr.text == "." do
+                advance_parser(p)
+            else do
+                done := true
+            end
+        else do
+            done := true
+        end
+    end
+    
+    create_node(18, t.line, t.column, path)
+end
+
+def parse_program(p: Parser): Integer do
+    prog = create_node(1, 1, 1, "program")
+    
+    loop p.curr.kind != 8 do # Not EOF
+        if p.curr.kind == 1 and (p.curr.text == "fn" or p.curr.text == "def") do
+            func = parse_function(p)
+            add_child(prog, func)
+        else if p.curr.kind == 1 and p.curr.text == "type" do
+            tdecl = parse_type_decl(p)
+            add_child(prog, tdecl)
+        else if p.curr.kind == 1 and p.curr.text == "enum" do
+            edecl = parse_enum_decl(p)
+            add_child(prog, edecl)
+        else if p.curr.kind == 1 and p.curr.text == "use" do
+            use_node = parse_use_stmt(p)
+            add_child(prog, use_node)
+        else do
+            stmt = parse_statement(p)
+            add_child(prog, stmt)
+        end
+    end
+    
+    prog
+end

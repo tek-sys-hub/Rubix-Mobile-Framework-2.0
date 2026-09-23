@@ -1,0 +1,74 @@
+
+use src.codegen.x86_64
+
+type SimdContext {
+    vector_width_bytes: Integer,
+    avx2_enabled: Boolean,
+    simd_registers_used: Integer
+}
+
+def init_simd(avx2: Boolean): SimdContext do
+    SimdContext {
+        vector_width_bytes: (if avx2 do 32 else do 16 end),
+        avx2_enabled: avx2,
+        simd_registers_used: 0
+    }
+end
+
+
+def emit_vec_zero(e: X86Emitter, xmm_dest: String) do
+    emit_asm(e, "    pxor " + xmm_dest + ", " + xmm_dest)
+end
+
+def emit_vec_broadcast_64(e: X86Emitter, xmm_dest: String, scalar_src: String) do
+    emit_asm(e, "    movq " + scalar_src + ", " + xmm_dest)
+    emit_asm(e, "    punpcklqdq " + xmm_dest + ", " + xmm_dest)
+end
+
+def emit_vec_load_aligned(e: X86Emitter, xmm_dest: String, ptr_reg: String, offset: Integer) do
+    if offset == 0 do
+        emit_asm(e, "    movdqa (" + ptr_reg + "), " + xmm_dest)
+    else do
+        emit_asm(e, "    movdqa " + int_to_string(offset) + "(" + ptr_reg + "), " + xmm_dest)
+    end
+end
+
+def emit_vec_load_unaligned(e: X86Emitter, xmm_dest: String, ptr_reg: String, offset: Integer) do
+    if offset == 0 do
+        emit_asm(e, "    movdqu (" + ptr_reg + "), " + xmm_dest)
+    else do
+        emit_asm(e, "    movdqu " + int_to_string(offset) + "(" + ptr_reg + "), " + xmm_dest)
+    end
+end
+
+def emit_vec_store_aligned(e: X86Emitter, ptr_reg: String, offset: Integer, xmm_src: String) do
+    if offset == 0 do
+        emit_asm(e, "    movdqa " + xmm_src + ", (" + ptr_reg + ")")
+    else do
+        emit_asm(e, "    movdqa " + xmm_src + ", " + int_to_string(offset) + "(" + ptr_reg + ")")
+    end
+end
+
+def emit_vec_add_64(e: X86Emitter, xmm_dest: String, xmm_src: String) do
+    emit_asm(e, "    paddq " + xmm_src + ", " + xmm_dest)
+end
+
+def emit_vec_sub_64(e: X86Emitter, xmm_dest: String, xmm_src: String) do
+    emit_asm(e, "    psubq " + xmm_src + ", " + xmm_dest)
+end
+
+def emit_vec_reduce_sum_64(e: X86Emitter, scalar_dest: String, xmm_src: String) do
+    # Extract high 64 bits to %xmm7, add to low 64 bits, extract to scalar register
+    emit_asm(e, "    movhlps " + xmm_src + ", %xmm7")
+    emit_asm(e, "    paddq %xmm7, " + xmm_src)
+    emit_asm(e, "    movq " + xmm_src + ", " + scalar_dest)
+end
+
+
+def emit_avx2_vec_add_64(e: X86Emitter, ymm_dest: String, ymm_src1: String, ymm_src2: String) do
+    emit_asm(e, "    vpaddq " + ymm_src2 + ", " + ymm_src1 + ", " + ymm_dest)
+end
+
+def emit_avx2_vec_sub_64(e: X86Emitter, ymm_dest: String, ymm_src1: String, ymm_src2: String) do
+    emit_asm(e, "    vpsubq " + ymm_src2 + ", " + ymm_src1 + ", " + ymm_dest)
+end

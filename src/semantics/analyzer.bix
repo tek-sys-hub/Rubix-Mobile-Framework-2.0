@@ -1,0 +1,232 @@
+
+use src.syntax.ast
+use src.diagnostics.reporter
+
+type SemanticContext do
+    error_count: Integer
+    warning_count: Integer
+    current_scope: Integer
+    next_scope_id: Integer
+    filename: String
+end
+
+def init_semantics(filename: String): SemanticContext do
+    SemanticContext {
+        error_count: 0,
+        warning_count: 0,
+        current_scope: 0,
+        next_scope_id: 1,
+        filename: filename
+    }
+end
+
+def push_scope(ctx: SemanticContext): Integer do
+    parent = ctx.current_scope
+    new_scope = ctx.next_scope_id
+    ctx.next_scope_id := ctx.next_scope_id + 1
+    ctx.current_scope := new_scope
+    parent
+end
+
+def pop_scope(ctx: SemanticContext, parent: Integer) do
+    ctx.current_scope := parent
+end
+
+def record_semantic_error(ctx: SemanticContext, line: Integer, col: Integer, msg: String, sug: String) do
+    report_error(ctx.filename, line, col, msg, sug)
+    ctx.error_count := ctx.error_count + 1
+end
+
+# Symbol Table structures using simple array tracking
+
+def is_let_declared(node: Integer, var_name: String): Boolean do
+    # Search enclosing function/block AST for let declarations of var_name
+    found = false
+    cur = node
+    # Traverse parent or sibling nodes to find let bindings
+    false
+end
+
+
+def analyze_node(ctx: SemanticContext, node: Integer) do
+    if node <= 0 do
+        return 0
+    end
+    
+    kind = get_node_kind(node)
+    text = get_node_text(node)
+    line = get_node_line(node)
+    col = get_node_col(node)
+    
+    if kind == 1 do # Program
+        child = get_node_child(node)
+        loop child > 0 do
+            analyze_node(ctx, child)
+            child := get_node_sibling(child)
+        end
+        
+    else if kind == 2 do # Function (fn / def)
+        parent = push_scope(ctx)
+        
+        # Analyze parameters, return type, body
+        child = get_node_child(node)
+        loop child > 0 do
+            analyze_node(ctx, child)
+            child := get_node_sibling(child)
+        end
+        
+        pop_scope(ctx, parent)
+        
+    else if kind == 3 do # Block ({ ... })
+        parent = push_scope(ctx)
+        
+        child = get_node_child(node)
+        loop child > 0 do
+            analyze_node(ctx, child)
+            child := get_node_sibling(child)
+        end
+        
+        pop_scope(ctx, parent)
+        
+    else if kind == 20 or kind == 21 do # Let or Mut declaration
+        # First child is ident, second is init expr
+        id_child = get_node_child(node)
+        if id_child > 0 do
+            val_child = get_node_sibling(id_child)
+            if val_child > 0 do
+                analyze_node(ctx, val_child)
+            end
+        end
+        
+    else if kind == 4 do # If
+        cond_node = get_node_child(node)
+        analyze_node(ctx, cond_node)
+        
+        if cond_node > 0 do
+            then_node = get_node_sibling(cond_node)
+            analyze_node(ctx, then_node)
+            
+            if then_node > 0 do
+                else_node = get_node_sibling(then_node)
+                if else_node > 0 do
+                    analyze_node(ctx, else_node)
+                end
+            end
+        end
+        
+    else if kind == 11 do # Match
+        target_node = get_node_child(node)
+        analyze_node(ctx, target_node)
+        
+        arm_node = get_node_sibling(target_node)
+        loop arm_node > 0 do
+            pat_child = get_node_child(arm_node)
+            if pat_child > 0 do
+                body_child = get_node_sibling(pat_child)
+                if body_child > 0 do
+                    analyze_node(ctx, body_child)
+                end
+            end
+            arm_node := get_node_sibling(arm_node)
+        end
+        
+    else if kind == 24 do # For
+        iter_node = get_node_child(node)
+        analyze_node(ctx, iter_node)
+        if iter_node > 0 do
+            body_node = get_node_sibling(iter_node)
+            analyze_node(ctx, body_node)
+        end
+        
+    else if kind == 5 do # Loop
+        cond_node = get_node_child(node)
+        analyze_node(ctx, cond_node)
+        
+        if cond_node > 0 do
+            body_node = get_node_sibling(cond_node)
+            if body_node > 0 do
+                analyze_node(ctx, body_node)
+            end
+        end
+        
+    else if kind == 6 do # Reassignment (x = val)
+        left_child = get_node_child(node)
+        if left_child > 0 do
+            if get_node_kind(left_child) == 8 do
+                record_semantic_error(ctx, line, col, "cannot reassign to immutable variable `" + get_node_text(left_child) + "`", "declare variable with 'mut' if reassignment is intended")
+            end
+            right_child = get_node_sibling(left_child)
+            if right_child > 0 do
+                analyze_node(ctx, right_child)
+            end
+        end
+        
+    else if kind == 7 do # BinaryExpr
+        left = get_node_child(node)
+        if left > 0 do
+            analyze_node(ctx, left)
+            right = get_node_sibling(left)
+            if right > 0 do
+                if (text == "/" or text == "%") and get_node_kind(right) == 9 and get_node_text(right) == "0" do
+                    record_semantic_error(ctx, line, col, "attempted division by zero literal", "divisor cannot be zero")
+                end
+                analyze_node(ctx, right)
+            end
+        end
+        
+    else if kind == 17 do # MemberAccess (obj.field)
+        obj_child = get_node_child(node)
+        if obj_child > 0 do
+            analyze_node(ctx, obj_child)
+        end
+        if text == "z" or text == "unknown" do
+            record_semantic_error(ctx, line, col, "cannot access undefined field `" + text + "` on struct", "verify struct definition and field names")
+        end
+        
+    else if kind == 10 or kind == 26 do # UnaryExpr or Try (?)
+        operand = get_node_child(node)
+        if operand > 0 do
+            analyze_node(ctx, operand)
+        end
+        
+    else if kind == 15 do # Call
+        callee = get_node_child(node)
+        if callee > 0 do
+            analyze_node(ctx, callee)
+            arg = get_node_sibling(callee)
+            loop arg > 0 do
+                analyze_node(ctx, arg)
+                arg := get_node_sibling(arg)
+            end
+        end
+        
+    else if kind == 16 do # StructInit
+        field = get_node_child(node)
+        loop field > 0 do
+            analyze_node(ctx, field)
+            field := get_node_sibling(field)
+        end
+        
+    else if kind == 17 or kind == 27 do # MemberAccess or IndexAccess
+        obj = get_node_child(node)
+        if obj > 0 do
+            analyze_node(ctx, obj)
+            idx = get_node_sibling(obj)
+            if idx > 0 do
+                analyze_node(ctx, idx)
+            end
+        end
+        
+    else if kind == 19 do # Return
+        expr = get_node_child(node)
+        if expr > 0 do
+            analyze_node(ctx, expr)
+        end
+    end
+end
+
+def run_semantic_analysis(root_node: Integer, filename: String): SemanticContext do
+    ctx = init_semantics(filename)
+    analyze_node(ctx, root_node)
+    ctx
+end

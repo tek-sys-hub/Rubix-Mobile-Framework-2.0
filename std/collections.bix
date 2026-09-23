@@ -1,0 +1,28 @@
+# Core data structures: Pairs, IntList nodes, and Option structures
+
+type IntPair do
+    first: Integer
+    second: Integer
+end
+
+def make_pair(a: Integer, b: Integer): IntPair do
+    IntPair { first: a, second: b }
+end
+
+type Range do
+    start: Integer
+    stop: Integer
+    step: Integer
+end
+
+def make_range(start: Integer, stop: Integer, step: Integer): Range do
+    Range { start: start, stop: stop, step: step }
+end
+
+def range_length(r: Range): Integer do
+    if r.step <= 0 or r.start >= r.stop do
+        0
+    else do
+        ((r.stop - r.start) + (r.step - 1)) / r.step
+    end
+end

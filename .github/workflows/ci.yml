@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-verify:
+    name: Build & Verify Toolchain (x86_64 Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils gcc
+
+      - name: Bootstrap self-hosted Rubix compiler
+        run: |
+          bash scripts/selfhost.sh
+
+      - name: Install Rubix locally
+        run: |
+          mkdir -p ~/.rubix/bin ~/.rubix/runtime ~/.rubix/src ~/.rubix/std ~/.rubix/tools ~/.rubix/examples ~/.local/bin
+          cp -a bin/* ~/.rubix/bin/
+          cp -a runtime/* ~/.rubix/runtime/
+          cp -a src/* ~/.rubix/src/
+          cp -a std/* ~/.rubix/std/
+          cp -a tools/* ~/.rubix/tools/
+          cp -a examples/* ~/.rubix/examples/
+          cp -f bin/rubix ~/.local/bin/rubix
+          chmod +x ~/.local/bin/rubix ~/.rubix/bin/*
+          echo "$HOME/.rubix/bin:$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Verify toolchain diagnostics
+        run: |
+          rubix -v
+          rubix doctor
+
+      - name: Test all runnable examples
+        run: |
+          for f in examples/*.bix; do
+            echo "Testing $f..."
+            rubix check "$f"
+            rubix run "$f"
+          done

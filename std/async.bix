@@ -1,0 +1,41 @@
+# Micro-Task Queue and Cooperative Future Scheduler
+
+module std.async
+
+# Task states: 0: Pending, 1: Running, 2: Completed, 3: Failed
+
+type Task {
+    id: Integer,
+    state: Integer,
+    result_val: Integer
+}
+
+def task_new(task_id: Integer): Task do
+    Task {
+        id: task_id,
+        state: 0,
+        result_val: 0
+    }
+end
+
+def task_complete(t: Task, result: Integer): Task do
+    Task {
+        id: t.id,
+        state: 2,
+        result_val: result
+    }
+end
+
+def task_is_done(t: Task): Boolean do
+    t.state == 2
+end
+
+def task_get_result(t: Task): Integer do
+    t.result_val
+end
+
+def run_task_pipeline(t1: Task, t2: Task): Integer do
+    t1_done = task_complete(t1, 100)
+    t2_done = task_complete(t2, t1_done.result_val + 50)
+    t2_done.result_val
+end

@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Package Release Assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils gcc
+
+      - name: Bootstrap native compiler
+        run: |
+          bash scripts/selfhost.sh
+
+      - name: Create release distribution archive
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          DIST_DIR="rubix-${VERSION}-linux-x86_64"
+          mkdir -p "${DIST_DIR}/bin" "${DIST_DIR}/runtime" "${DIST_DIR}/src" "${DIST_DIR}/std" "${DIST_DIR}/tools" "${DIST_DIR}/examples" "${DIST_DIR}/docs"
+          
+          # Copy binaries and libraries
+          cp -a bin/rubix bin/rubixc "${DIST_DIR}/bin/"
+          cp -a runtime/* "${DIST_DIR}/runtime/"
+          cp -a src/* "${DIST_DIR}/src/"
+          cp -a std/* "${DIST_DIR}/std/"
+          cp -a tools/* "${DIST_DIR}/tools/"
+          cp -a examples/* "${DIST_DIR}/examples/"
+          cp -a docs/* "${DIST_DIR}/docs/"
+          cp -a README.md LICENSE "${DIST_DIR}/" 2>/dev/null || cp -a README.md "${DIST_DIR}/"
+          
+          # Create archive
+          tar -czvf "${DIST_DIR}.tar.gz" "${DIST_DIR}"
+          sha256sum "${DIST_DIR}.tar.gz" > "${DIST_DIR}.tar.gz.sha256"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            rubix-*-linux-x86_64.tar.gz
+            rubix-*-linux-x86_64.tar.gz.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: false
