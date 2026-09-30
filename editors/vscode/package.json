@@ -1,18 +1,22 @@
 {
-  "name": "rubix-lang",
-  "displayName": "Rubix Language Support",
+  "name": "rubix-language",
+  "displayName": "Rubix Programming Language",
   "description": "Official IDE language support for the Rubix programming language (*.bix)",
   "version": "1.0.0",
-  "publisher": "rubix-lang",
+  "publisher": "Rubix-lang-v10",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rubix-lang/rubix"
+    "url": "https://github.com/tek-sys-hub/Rubix-Mobile-Framework-2.0"
   },
   "icon": "icons/rubix-logo.png",
   "engines": {
     "vscode": "^1.75.0"
   },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:rubix"
+  ],
   "categories": [
     "Programming Languages",
     "Snippets",
@@ -61,21 +65,94 @@
     ],
     "commands": [
       {
-        "command": "rubix.build",
-        "title": "Rubix: Build Standalone Native Executable"
+        "command": "rubix.run",
+        "title": "Rubix: Run Active File",
+        "icon": "$(play)"
       },
       {
-        "command": "rubix.run",
-        "title": "Rubix: Run Active File"
+        "command": "rubix.build",
+        "title": "Rubix: Build Standalone Native Executable",
+        "icon": "$(package)"
+      },
+      {
+        "command": "rubix.check",
+        "title": "Rubix: Check Diagnostics & Types",
+        "icon": "$(check)"
       },
       {
         "command": "rubix.format",
-        "title": "Rubix: Format Document"
+        "title": "Rubix: Format Document",
+        "icon": "$(symbol-class)"
       },
       {
         "command": "rubix.doctor",
-        "title": "Rubix: Run Doctor Subsystem Health Check"
+        "title": "Rubix: Run Doctor Subsystem Health Check",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "rubix.init",
+        "title": "Rubix: Initialize New Project",
+        "icon": "$(new-folder)"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "rubix.run",
+          "when": "editorLangId == rubix",
+          "group": "navigation@1"
+        },
+        {
+          "command": "rubix.build",
+          "when": "editorLangId == rubix",
+          "group": "navigation@2"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "rubix.run",
+          "when": "editorLangId == rubix",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "rubix.build",
+          "when": "editorLangId == rubix",
+          "group": "1_modification@2"
+        },
+        {
+          "command": "rubix.check",
+          "when": "editorLangId == rubix",
+          "group": "1_modification@3"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "rubix.run",
+        "key": "ctrl+shift+r",
+        "when": "editorLangId == rubix && editorTextFocus"
+      },
+      {
+        "command": "rubix.build",
+        "key": "ctrl+shift+b",
+        "when": "editorLangId == rubix && editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Rubix Configuration",
+      "properties": {
+        "rubix.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run rubix check diagnostics on document save."
+        },
+        "rubix.formatOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically run rubix fmt on document save."
+        }
+      }
+    }
   }
 }

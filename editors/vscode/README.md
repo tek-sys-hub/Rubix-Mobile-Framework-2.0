@@ -1,23 +1,35 @@
-# Rubix Language Support for Visual Studio Code
+# Rubix Language Support for Visual Studio Code & Cursor
 
-Official VS Code extension for **Rubix 1.0.0** (`*.bix`), the high-performance, statically typed, expression-oriented systems programming language.
+Official extension for **Rubix 1.0.0** (`*.bix`), providing a complete IDE experience for high-performance systems development.
 
 ## Features
 
-- **Rich Syntax Highlighting**: Accurate TextMate grammar for all Rubix 1.0.0 constructs (`fn`, `let`, `mut`, `match`, `enum`, `type`, `Option[T]`, `Result[T, E]`, `?`).
-- **Dedicated `.bix` File Icon**: Crisp vector file icon in the VS Code file explorer.
-- **Language Configuration**: Auto-closing braces/brackets, indentation rules, and comment toggling (`#`).
-- **Productive Code Snippets**: Quick templates for functions (`fn`), types (`type`), sum type enums (`enum`), pattern matches (`match`), and loops (`loop`, `for`).
-- **Integrated Toolchain Commands**:
-  - `Rubix: Build Standalone Native Executable` (`rubix build`)
-  - `Rubix: Run Active File` (`rubix run`)
-  - `Rubix: Format Document` (`rubix fmt`)
-  - `Rubix: Run Doctor Subsystem Health Check` (`rubix doctor`)
+- **One-Click Run & Build Buttons**: Dedicated `▶ Run` and `📦 Build` buttons in the editor title bar.
+- **On-Save Diagnostic Linter**: Automatically validates syntax and types on save, displaying inline red squigglies and populating the VS Code Problems panel.
+- **On-Save & On-Demand Formatter**: Integrates with `rubix fmt` via `Shift + Alt + F` or Format Document.
+- **Interactive Hover Documentation**: Rich type descriptions and code snippets when hovering over types (`Integer`, `String`, `Option[T]`, `Result[T, E]`), statements, and functions (`alloc`, `arena_reset`, `print`).
+- **Rich Syntax Highlighting**: Accurate TextMate grammar for all Rubix constructs (`fn`, `def`, `let`, `mut`, `match`, `enum`, `type`, `loop`, `print`, `read_file`).
+- **Dedicated File Icons**: Crisp vector file icon in the VS Code file explorer.
+- **Auto-Closing & Bracket Matching**: Smart pairs for `{}`, `()`, `[]`, and `""`.
+- **Productive Code Snippets**: Quick templates for `fn`, `mut`, `loop`, `type`, `enum`, and `match`.
+
+## Shortcuts
+
+| Shortcut | Action | Command |
+| :--- | :--- | :--- |
+| `Ctrl + Shift + R` | Run Active Rubix File | `rubix.run` |
+| `Ctrl + Shift + B` | Build Standalone Native Binary | `rubix.build` |
+| `Shift + Alt + F` | Format Document | `editor.action.formatDocument` |
+| `Ctrl + /` | Toggle Line Comment (`#`) | `editor.action.commentLine` |
 
 ## Installation
 
+Install directly via the VS Code CLI:
 ```bash
-# Package into VSIX
-cd editors/vscode
-npm run package # or code --install-extension rubix-lang-1.0.0.vsix
+code --install-extension editors/vscode/rubix-lang-1.0.0.vsix --force
 ```
+
+Or from within VS Code:
+1. Open the Extensions view (`Ctrl + Shift + X`).
+2. Click the `...` menu in the top right.
+3. Select **Install from VSIX...** and choose `editors/vscode/rubix-lang-1.0.0.vsix`.
