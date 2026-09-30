@@ -61,19 +61,31 @@ rubix build tests/benchmarks/bench_memory_growth.bix -o bin/bench_mem && ./bin/b
 
 ## Quickstart
 
-### 1. Clone & Bootstrap from Source
+### 1. Installation
 
+#### Windows (PowerShell)
+Run in PowerShell:
+```powershell
+irm https://raw.githubusercontent.com/tek-sys-hub/Rubix-Mobile-Framework-2.0/main/install.ps1 | iex
+```
+
+#### Linux / macOS
+Run in your terminal:
+```bash
+curl -fsSL https://raw.githubusercontent.com/tek-sys-hub/Rubix-Mobile-Framework-2.0/main/install.sh | bash
+```
+
+#### Or Clone & Install from Source
 ```bash
 # Clone repository
 git clone https://github.com/tek-sys-hub/Rubix-Mobile-Framework-2.0.git rubix
 cd rubix
 
-# Bootstrap the self-hosted compiler
+# Linux bootstrap
 bash scripts/selfhost.sh
 
-# Add rubix to your PATH
-mkdir -p ~/.local/bin
-ln -sf "$(pwd)/bin/rubix" ~/.local/bin/rubix
+# Or Windows setup
+.\install.ps1
 ```
 
 ### 2. Run an Example
@@ -85,6 +97,11 @@ rubix run examples/01_basics.bix
 ### 3. Build a Standalone Native Executable
 
 ```bash
+# Windows
+rubix build examples/01_basics.bix -o bin/basics_app.exe
+.\bin\basics_app.exe
+
+# Linux
 rubix build examples/01_basics.bix -o bin/basics_app
 ./bin/basics_app
 ```
