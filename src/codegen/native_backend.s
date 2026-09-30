@@ -5283,12 +5283,54 @@ compile_file:
 	.p2align 4,,10
 	.p2align 3
 .L879:
-	movdqa	.LC237(%rip), %xmm0
-	movaps	%xmm0, 129360(%rsp)
-	movdqa	.LC238(%rip), %xmm0
-	movaps	%xmm0, 129376(%rsp)
-	movdqa	.LC239(%rip), %xmm0
-	movups	%xmm0, 129389(%rsp)
+	leaq	.LC_env_rt_lib(%rip), %rdi
+	call	getenv@PLT
+	testq	%rax, %rax
+	je	.L_try_rubix_home
+	movq	%rax, %rdi
+	call	file_exists@PLT
+	testq	%rax, %rax
+	je	.L_try_rubix_home
+	leaq	.LC_env_rt_lib(%rip), %rdi
+	call	getenv@PLT
+	movq	%rax, %rsi
+	leaq	129360(%rsp), %rdi
+	call	strcpy@PLT
+	jmp	.L788
+.L_try_rubix_home:
+	leaq	.LC_env_rubix_home(%rip), %rdi
+	call	getenv@PLT
+	testq	%rax, %rax
+	je	.L_try_home
+	movq	%rax, %rcx
+	leaq	.LC_fmt_rubix_home(%rip), %rdx
+	movl	$512, %esi
+	leaq	129360(%rsp), %rdi
+	xorl	%eax, %eax
+	call	snprintf@PLT
+	leaq	129360(%rsp), %rdi
+	call	file_exists@PLT
+	testq	%rax, %rax
+	jne	.L788
+.L_try_home:
+	leaq	.LC_env_home(%rip), %rdi
+	call	getenv@PLT
+	testq	%rax, %rax
+	je	.L_fallback_system
+	movq	%rax, %rcx
+	leaq	.LC_fmt_user_home(%rip), %rdx
+	movl	$512, %esi
+	leaq	129360(%rsp), %rdi
+	xorl	%eax, %eax
+	call	snprintf@PLT
+	leaq	129360(%rsp), %rdi
+	call	file_exists@PLT
+	testq	%rax, %rax
+	jne	.L788
+.L_fallback_system:
+	leaq	.LC_fmt_usr_local(%rip), %rsi
+	leaq	129360(%rsp), %rdi
+	call	strcpy@PLT
 	jmp	.L788
 .L735:
 	leaq	.LC164(%rip), %r12
@@ -5895,18 +5937,6 @@ reg_names:
 	.quad	3415256192122778994
 	.quad	8676574413675719020
 	.align 16
-.LC237:
-	.quad	7593684034374297647
-	.quad	3421180424879564915
-	.align 16
-.LC238:
-	.quad	8227927438247948846
-	.quad	7795561000596696693
-	.align 16
-.LC239:
-	.quad	7094702554993143653
-	.quad	27354150410877033
-	.align 16
 .LC240:
 	.quad	2333818326480201248
 	.quad	7162743404398139181
@@ -5920,6 +5950,18 @@ reg_names:
 	.quad	9129745076547438
 .LC_tco_name_str:
 	.string	"tail_call"
+.LC_env_rt_lib:
+	.string	"RUBIX_RT_LIB"
+.LC_env_rubix_home:
+	.string	"RUBIX_HOME"
+.LC_fmt_rubix_home:
+	.string	"%s/runtime/librubix_rt.a"
+.LC_env_home:
+	.string	"HOME"
+.LC_fmt_user_home:
+	.string	"%s/.rubix/runtime/librubix_rt.a"
+.LC_fmt_usr_local:
+	.string	"/usr/local/lib/librubix_rt.a"
 	.ident	"GCC: (GNU) 16.2.1 20260810"
 
 	.section	.note.GNU-stack,"",@progbits

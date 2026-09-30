@@ -38,7 +38,7 @@ def print_help() do
     print ""
     print "More info: rubix help <command>"
     print ""
-    print "rubix@1.0.0 /home/bishwaxyz/.rubix"
+    print "rubix@1.0.0"
 end
 
 def print_version() do

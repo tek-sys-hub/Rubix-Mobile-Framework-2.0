@@ -1,0 +1,14 @@
+# Your first Rubix program!
+fn main(): Integer {
+    print "Hello from Rubix!"
+    
+    let message = "Fast, safe, zero-dependency systems programming"
+    print message
+    
+    let a = 10
+    let b = 25
+    print "10 + 25 ="
+    print a + b
+    
+    0
+}

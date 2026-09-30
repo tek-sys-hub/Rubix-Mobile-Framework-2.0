@@ -16630,4 +16630,4 @@ rubix_main:
 .LC_str_more_info:
     .string "More info: rubix help <command>"
 .LC_str_pkg_path:
-    .string "rubix@1.0.0 /home/bishwaxyz/.rubix"
+    .string "rubix@1.0.0"

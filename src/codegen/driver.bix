@@ -103,7 +103,9 @@ def compile_bix_to_native(source_path: String, output_bin: String): Integer do
     # 6. Assemble & Link into Standalone ELF Binary via GNU as and gcc
     mut rt_lib = "runtime/librubix_rt.a"
     if file_exists(rt_lib) == 0 do
-        rt_lib := "/home/bishwaxyz/.rubix/runtime/librubix_rt.a"
+        if file_exists("/usr/local/lib/librubix_rt.a") == 1 do
+            rt_lib := "/usr/local/lib/librubix_rt.a"
+        end
     end
     cmd = "as -o " + output_bin + ".o " + asm_file + " && gcc -no-pie -fno-lto " + output_bin + ".o " + rt_lib + " -o " + output_bin + " && rm -f " + output_bin + ".o"
     res = run_command_host(cmd)

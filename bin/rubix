@@ -16,6 +16,15 @@ fi
 
 RUBIXC="$RUBIX_HOME/bin/rubixc"
 
+export RUBIX_HOME
+if [ -f "$RUBIX_HOME/runtime/librubix_rt.a" ]; then
+    export RUBIX_RT_LIB="$RUBIX_HOME/runtime/librubix_rt.a"
+    mkdir -p "$HOME/.rubix/runtime"
+    if [ ! -f "$HOME/.rubix/runtime/librubix_rt.a" ] || [ "$RUBIX_HOME/runtime/librubix_rt.a" -nt "$HOME/.rubix/runtime/librubix_rt.a" ]; then
+        cp -p "$RUBIX_HOME/runtime/librubix_rt.a" "$HOME/.rubix/runtime/librubix_rt.a" 2>/dev/null || true
+    fi
+fi
+
 if [ ! -x "$RUBIXC" ]; then
     echo "error: bin/rubixc not found. Please run ./scripts/selfhost.sh"
     exit 1
